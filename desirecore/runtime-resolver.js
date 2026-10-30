@@ -55,12 +55,19 @@ async function download(asset,file,fetchImpl=fetch) {
  if(hash.digest("hex")!==asset.sha256)throw Error("Runtime SHA-256 mismatch: "+asset.id);
  }catch(e){fs.rmSync(file,{force:true});throw e;}finally{clearTimeout(timer);}
 }
-function run(command,args,options={}) {const r=spawnSync(command,args,{encoding:"utf8",windowsHide:true,timeout:120_000,...options});if(r.error||r.status!==0)throw Error("Runtime extraction failed: "+command+": "+(r.error?.message||r.stderr||r.status));}
+function run(command,args,options={}) {const r=spawnSync(command,args,{encoding:"utf8",windowsHide:true,shell:false,timeout:120_000,...options});if(r.error||r.status!==0)throw Error("Runtime extraction failed: "+command+": "+(r.error?.message||r.stderr||r.status));}
+function windowsTar() {
+ // Git for Windows can put GNU tar first on PATH; it interprets a D: archive as a remote host.
+ // Use Windows' bundled bsdtar by its system path and fail rather than trying another PATH tool.
+ const root=process.env.SystemRoot;
+ if(typeof root!=="string"||!/^[A-Za-z]:[\\/]/.test(root))throw Error("Windows runtime extraction requires a drive-absolute SystemRoot");
+ return path.win32.join(root,"System32","tar.exe");
+}
 async function extract(asset,archive,stage,platform) {
  if(asset.format==="gzip"){
  const output=path.join(stage,asset.executable);fs.mkdirSync(path.dirname(output),{recursive:true});await pipeline(fs.createReadStream(archive),createGunzip(),fs.createWriteStream(output,{flags:"wx",mode:0o755}));
  }else if(asset.format==="zip"){
- if(platform==="win32")run("tar.exe",["-xf",archive,"-C",stage]);else run("unzip",["-q",archive,"-d",stage]);
+ if(platform==="win32")run(windowsTar(),["-xf",archive,"-C",stage]);else run("unzip",["-q",archive,"-d",stage]);
  }else if(asset.format==="text")fs.copyFileSync(archive,path.join(stage,asset.executable));
  else throw Error("Unsupported pinned archive format: "+asset.format);
 }

@@ -20,59 +20,100 @@ const NO_WATCH = { FABLECUT_NO_FS_WATCH: "1" };
 const boot = async (t, project) => {
   const dir = makeDataDir(t, project);
   const { base } = await startServer(t, dir, NO_WATCH);
-  return { dir, base };
+  const response = await fetch(base + "/api/project");
+  assert.equal(response.status, 200);
+  const baseline = await response.json();
+  return { dir, base, baseline };
 };
+const projectHeaders = (baseline) => ({
+  "Content-Type": "application/json",
+  "X-FableCut-Project": baseline.projectId,
+  "X-FableCut-Base-Revision": String(baseline.revision),
+});
+const projectBytes = (dir) => fs.readFileSync(path.join(dir, "project.json"));
 
 test("GET /api/project serves the document on disk", async (t) => {
-  const { base } = await boot(t);
+  const { dir, base, baseline } = await boot(t);
   const res = await fetch(base + "/api/project");
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type"), /application\/json/);
-  assert.deepEqual(await res.json(), seedProject());
+  assert.match(baseline.projectId, /^p_[a-z0-9]+$/);
+  assert.equal(res.headers.get("x-fablecut-projects"), "1");
+  assert.equal(res.headers.get("x-fablecut-project"), baseline.projectId);
+  assert.deepEqual(await res.json(), { ...seedProject(), projectId: baseline.projectId });
+  assert.deepEqual(readProject(dir), baseline, "the API and disk share the full document and metadata");
 });
 
 test("PUT /api/project saves a newer revision", async (t) => {
-  const { dir, base } = await boot(t);
-  const doc = { ...seedProject(), revision: 2, name: "Saved" };
+  const { dir, base, baseline } = await boot(t);
+  const doc = { ...baseline, revision: baseline.revision + 1, name: "Saved" };
   const res = await fetch(base + "/api/project", {
-    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc),
+    method: "PUT", headers: projectHeaders(baseline), body: JSON.stringify(doc),
   });
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true, revision: 2 });
-  assert.equal(readProject(dir).name, "Saved");
+  assert.deepEqual(await res.json(), { ok: true, revision: doc.revision, replayed: false });
+  assert.deepEqual(readProject(dir), doc, "creative fields and the accepted projectId/revision survive the save");
+  assert.deepEqual(await (await fetch(base + "/api/project")).json(), doc);
 });
 
 test("PUT /api/project rejects a stale write instead of clobbering it", async (t) => {
-  const { dir, base } = await boot(t);
-  // revision 1 is already on disk: an equal or lower revision is a stale read.
-  for (const revision of [1, 0, undefined]) {
+  const { dir, base, baseline } = await boot(t);
+  const current = { ...baseline, revision: baseline.revision + 1, name: "Saved first" };
+  const saved = await fetch(base + "/api/project", {
+    method: "PUT", headers: projectHeaders(baseline), body: JSON.stringify(current),
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await saved.json(), { ok: true, revision: current.revision, replayed: false });
+  const before = projectBytes(dir);
+  const cases = [
+    { base: baseline, revision: baseline.revision + 1 },
+    { base: baseline, revision: current.revision + 1 }, // guessing the next revision cannot cure a stale base
+    ...[current.revision, 0, undefined].map((revision) => ({ base: current, revision })),
+  ];
+  for (const { base: expected, revision } of cases) {
     const res = await fetch(base + "/api/project", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...seedProject(), revision, name: "Clobbered" }),
+      method: "PUT", headers: projectHeaders(expected),
+      body: JSON.stringify({ ...baseline, revision, name: "Clobbered" }),
     });
     assert.equal(res.status, 409, `revision ${revision} should conflict`);
     const body = await res.json();
-    assert.match(body.error, /stale revision/);
-    assert.equal(body.revision, 1, "the response tells the client where disk actually is");
+    assert.match(body.error, /CONFLICT — expected revision/);
+    assert.equal(body.revision, current.revision, "the response tells the client where disk actually is");
+    assert.deepEqual(projectBytes(dir), before, "a rejected write preserves the exact file bytes");
   }
-  assert.equal(readProject(dir).name, "Test Project", "a rejected write must not land");
+  assert.deepEqual(readProject(dir), current);
 });
 
-test("PUT /api/project?force=1 overwrites deliberately", async (t) => {
-  const { dir, base } = await boot(t);
-  const res = await fetch(base + "/api/project?force=1", {
-    method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...seedProject(), revision: 1, name: "Forced" }),
-  });
-  assert.equal(res.status, 200);
-  assert.equal(readProject(dir).name, "Forced");
+test("PUT /api/project?force=1 cannot bypass project identity or revision checks", async (t) => {
+  const { dir, base, baseline } = await boot(t);
+  const before = projectBytes(dir);
+  for (const [headers, revision, error] of [
+    [projectHeaders(baseline), baseline.revision, /CONFLICT — expected revision/],
+    [projectHeaders({ ...baseline, revision: baseline.revision - 1 }), baseline.revision + 1, /CONFLICT — expected revision/],
+    [projectHeaders({ ...baseline, projectId: "other-project" }), baseline.revision + 1, /^another project is open now$/],
+  ]) {
+    const res = await fetch(base + "/api/project?force=1", {
+      method: "PUT", headers,
+      body: JSON.stringify({ ...baseline, revision, name: "Forced" }),
+    });
+    assert.equal(res.status, 409);
+    const body = await res.json();
+    assert.match(body.error, error);
+    assert.equal(body.revision, baseline.revision);
+    if (headers["X-FableCut-Project"] !== baseline.projectId)
+      assert.equal(body.project, baseline.projectId, "identity conflicts name the open project");
+    assert.deepEqual(projectBytes(dir), before, "force does not alter the rejected document");
+  }
+  assert.deepEqual(readProject(dir), baseline);
 });
 
 test("PUT /api/project rejects malformed JSON without corrupting the file", async (t) => {
-  const { dir, base } = await boot(t);
+  const { dir, base, baseline } = await boot(t);
+  const before = projectBytes(dir);
   const res = await fetch(base + "/api/project", { method: "PUT", body: "{not json" });
   assert.equal(res.status, 400);
-  assert.deepEqual(readProject(dir), seedProject());
+  assert.deepEqual(projectBytes(dir), before);
+  assert.deepEqual(readProject(dir), baseline);
 });
 
 test("GET /api/library lists assets and validates the dir argument", async (t) => {
