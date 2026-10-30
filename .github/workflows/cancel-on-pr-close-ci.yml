@@ -1,6 +1,7 @@
-name: Cancel CI on PR close
+name: Cancel CI runs on PR close
 on:
   pull_request_target:
+    branches: [main]
     types: [closed]
 permissions: {}
 concurrency:
@@ -10,4 +11,5 @@ jobs:
   cancel:
     if: false
     runs-on: ubuntu-latest
-    steps: []
+    steps:
+      - run: 'true'
