@@ -110,7 +110,7 @@
     },
     {
       "name": "fablecut_export",
-      "description": "Render the timeline to a video file with the editor's Fast export, in an open editor tab or a headless browser"
+      "description": "Render the saved timeline and declared local media as an independent frozen snapshot using the editor's Fast export in the prepared headless browser; auto/headless use that renderer, and tab is refused before capture"
     },
     {
       "name": "fablecut_scopes",

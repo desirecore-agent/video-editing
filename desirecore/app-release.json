@@ -639,8 +639,8 @@
     },
     {
       "path": "manifest.json",
-      "sha256": "a0bdcc3f169d73d5009d029638027feaee6e581a31f3f73b556ceed38a4a9e59",
-      "size": 6251,
+      "sha256": "5f575bcd1cb7b0f98fd1458cdc1af33893d532aba21aeecb4c3e7357b45e1f44",
+      "size": 6357,
       "role": "runtime"
     },
     {
@@ -796,7 +796,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "3543c05cdc5a70337f2b97efd0a205de656b831820385575fd2aec760eea22d5"
+    "sha256": "b591c3e2e53e7c42a5ac269286eac9e075d298fbc7defcd183f8a69d7b2286e9"
   },
   "supportedPlatforms": [
     "darwin",
@@ -829,5 +829,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "144ff33cd265e4b4e7a8d2bd2d3c9b3fd2de81b7dabca60f4991d3502e4f846d"
+  "releaseDigest": "947a0d2990b52cb568e89916e84fd9dbb0012952a3cfd660d42484d700daf136"
 }
