@@ -183,8 +183,8 @@
     },
     {
       "path": "desirecore/runtime-resolver.js",
-      "sha256": "81cd1ec326414f7c9cb4f28916564485c93ad45c8fd59fd9f5f2779988181bd7",
-      "size": 8136,
+      "sha256": "b0f8a5ff59cf21f2973d4776a2945ec736b5b9164c0f4baec0e2e4891d891c34",
+      "size": 8597,
       "role": "runtime"
     },
     {
@@ -796,7 +796,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "a4ac379ceb93148f255dad67dc5102f72bc4925cf1ae2550d8bbf813960a127f"
+    "sha256": "c87bdcf0a0b70a8ac6018b9a89971bf3bba31dbaa0dfd3a25c2d91752d0daad0"
   },
   "supportedPlatforms": [
     "darwin",
@@ -829,5 +829,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "c06242de6a78092ad96f3adaa9569308a3c6d556e887ec6d335efd4626bd73d8"
+  "releaseDigest": "f5e2ca8b7bf9f0963517251bf38f1ca684e448602ee722f68c0e0c25c2880cd3"
 }
