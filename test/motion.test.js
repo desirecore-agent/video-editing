@@ -7,7 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const M = require("../motion.js");
 const E = require("../edit-ops.js");
-const { makeDataDir, readProject, startMcp } = require("./helpers");
+const { makeDataDir, readProject, startManagedMcp } = require("./helpers");
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 
@@ -149,7 +149,7 @@ const motionProject = () => ({
 
 test("agent: shape and null clips, setShape / removeShape, setParent and the compact view", async (t) => {
   const dir = makeDataDir(t, motionProject());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const clip = (id) => readProject(dir).clips.find((c) => c.id === id);
@@ -296,7 +296,7 @@ test("a split keeps the motion path's handles on both halves", () => {
 
 test("agent: setMotionPath, setTextPath, motion blur props and the compact view", async (t) => {
   const dir = makeDataDir(t, motionProject());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const clip = (id) => readProject(dir).clips.find((c) => c.id === id);

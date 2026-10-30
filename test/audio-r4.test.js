@@ -9,7 +9,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { spawnSync } = require("node:child_process");
-const { ROOT, makeDataDir, readProject, seedProject, startMcp, startServer } = require("./helpers");
+const { ROOT, makeDataDir, readProject, seedProject, startManagedMcp, startServer } = require("./helpers");
 const FX = require("../audio-fx.js");
 const EditOps = require("../edit-ops.js");
 
@@ -90,7 +90,7 @@ test("a stem playing a denoised copy still links to its picture", () => {
 /* ── Agent side: buses, fx keys ── */
 const boot = async (t, project) => {
   const dir = makeDataDir(t, project);
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   return { dir, mcp, patch: (...ops) => mcp.callTool("fablecut_patch_project", { ops }), doc: () => readProject(dir) };
 };

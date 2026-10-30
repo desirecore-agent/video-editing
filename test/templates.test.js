@@ -8,7 +8,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const T = require("../templates.js");
-const { makeDataDir, readProject, startMcp } = require("./helpers");
+const { makeDataDir, readProject, startManagedMcp } = require("./helpers");
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 const keys = (c, ch) => c.keyframes[ch].map((k) => [k.t, k.v]);
@@ -135,7 +135,7 @@ const project = () => ({
 
 test("agent: applyPreset, addTemplate, setTemplate, savePreset, saveTemplate", async (t) => {
   const dir = makeDataDir(t, project());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const doc = () => readProject(dir);

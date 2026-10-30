@@ -6,8 +6,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const C = require("../comp.js");
 const M = require("../motion.js");
-const { makeDataDir, readProject, startMcp, startServer } = require("./helpers");
-const managed = require("./fixtures/managed-runtime-env.cjs");
+const { makeDataDir, readProject, startManagedMcp } = require("./helpers");
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 const docWithComp = () => ({
@@ -117,9 +116,7 @@ const project = () => ({
 
 test("agent: addComp, inComp, precompose, updateComp, removeComp and the compact view", async (t) => {
   const dir = makeDataDir(t, project());
-  const service = await startServer(t, dir, { ...managed.platform, FABLECUT_NO_FS_WATCH: "1" });
-  const owner = await (await fetch(service.base + "/api/desirecore/instance")).json();
-  const mcp = startMcp(t, dir, { PORT: String(service.port), ...managed.client(owner) });
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const doc = () => readProject(dir);

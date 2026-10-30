@@ -8,7 +8,7 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const path = require("node:path");
 const M = require("../mask.js");
-const { makeDataDir, readProject, seedProject, startServer, startMcp } = require("./helpers");
+const { makeDataDir, readProject, seedProject, startServer, startMcp, startManagedMcp } = require("./helpers");
 
 const near = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg}: expected ${b}, got ${a}`);
 const BW = 200, BH = 100;   // a 2:1 picture
@@ -146,7 +146,7 @@ const masked = () => seedProject({
 
 test("setMask adds, merges, finds by name, removes; setMaskKeys animates; locks and audio are refused", async (t) => {
   const dir = makeDataDir(t, masked());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const masks = (id) => readProject(dir).clips.find((c) => c.id === id).props?.masks;
@@ -246,7 +246,7 @@ test("fablecut_scopes passes mask:{clip} on the ticket and reports the masks' co
 
 test("a split or head trim re-bases mask keys, so the animation plays on unchanged", async (t) => {
   const dir = makeDataDir(t, masked());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   let r = await patch({ op: "setMask", id: "c_a", set: { shape: "rect", keys: [{ t: 0, x: 0.2 }, { t: 4, x: 0.6, ease: "linear" }] } },
@@ -281,7 +281,7 @@ test("track mattes: the matte track is the video track above unless named; blend
 
 test("setMatte sets and clears a track matte; blend, matte and matteTrack are validated on updateClip", async (t) => {
   const dir = makeDataDir(t, masked());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const props = (id) => readProject(dir).clips.find((c) => c.id === id).props || {};

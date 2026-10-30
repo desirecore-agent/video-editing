@@ -8,7 +8,7 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const path = require("node:path");
 const C = require("../color.js");
-const { makeDataDir, readProject, seedProject, startServer, startMcp } = require("./helpers");
+const { makeDataDir, readProject, seedProject, startServer, startMcp, startManagedMcp } = require("./helpers");
 
 const near = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg}: expected ${b}, got ${a}`);
 
@@ -103,7 +103,7 @@ const graded = () => seedProject({
 
 test("setGrade merges, resets with null, replaces, clears — and respects locks", async (t) => {
   const dir = makeDataDir(t, graded());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const grade = (id) => readProject(dir).clips.find((c) => c.id === id).props?.grade;
@@ -236,7 +236,7 @@ test("curves: monotone, endpoints added, luma curve keeps hue, hue curves wrap",
 
 test("setGrade sets curves per channel and hue curves, null removes one", async (t) => {
   const dir = makeDataDir(t, graded());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const grade = (id) => readProject(dir).clips.find((c) => c.id === id).props?.grade;
@@ -315,7 +315,7 @@ test("layers: qualifier and mask mattes, mixing, stacking, keys and validation",
 
 test("setGradeLayer adds, merges, finds by name, removes — and setGrade replaces the layer list", async (t) => {
   const dir = makeDataDir(t, graded());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const layers = (id) => readProject(dir).clips.find((c) => c.id === id).props?.grade?.layers;

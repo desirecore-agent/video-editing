@@ -200,4 +200,18 @@ function startMcp(t, dataDir, env = {}) {
   return api;
 }
 
-module.exports = { ROOT, seedProject, makeDataDir, readProject, writeProject, startServer, startMcp, rawGet };
+/* Editing consumers need a private service owner, not MCP autostart on 7777:
+   concurrent test files otherwise race to attach to one another's data root.
+   The identity is read from the real service; these unit fixture fields are
+   consistency inputs, not platform authorization or native acceptance proof. */
+async function startManagedMcp(t, dataDir) {
+  const managed = require("./fixtures/managed-runtime-env.cjs");
+  const service = await startServer(t, dataDir, { ...managed.platform, FABLECUT_NO_FS_WATCH: "1" });
+  const response = await fetch(service.base + "/api/desirecore/instance");
+  assert.equal(response.status, 200, "the test service must publish its owner identity");
+  const owner = await response.json();
+  assert.equal(owner.managed, true);
+  return startMcp(t, dataDir, { PORT: String(service.port), ...managed.client(owner) });
+}
+
+module.exports = { ROOT, seedProject, makeDataDir, readProject, writeProject, startServer, startMcp, startManagedMcp, rawGet };
