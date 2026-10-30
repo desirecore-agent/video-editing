@@ -129,8 +129,8 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "a10718adfa20d8657b587db73563740bcb7a42f5b894339d87576f6fe11c9e38",
-      "size": 8023,
+      "sha256": "c2007e35b46336e494d4dc613a9d6146514db453b88a5c63d4c2b2e0c2b11a50",
+      "size": 8552,
       "role": "documentation"
     },
     {
@@ -207,8 +207,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "185503cda6955780a37aae860214b1ba4119ad8b619eb620887b0a8a3789a227",
-      "size": 180098,
+      "sha256": "d13b946f11456e62faa3e8cf2038ff304080cf81ce58b2370d64bb08572c1160",
+      "size": 181023,
       "role": "documentation"
     },
     {
@@ -651,8 +651,8 @@
     },
     {
       "path": "mcp-server.js",
-      "sha256": "e20468b77312c58c1acd35d0bc5c9fb9082dcb888f219b46fbd72ba51e3aa139",
-      "size": 161706,
+      "sha256": "c229886898a9c2cbe486d30e3c64c4e276fe8b5e8422cacdb6589a38d7cfbf18",
+      "size": 161768,
       "role": "runtime"
     },
     {
@@ -747,8 +747,8 @@
     },
     {
       "path": "server.js",
-      "sha256": "f2be86f3a80f46c8580d49043b760ae77f4d9c585cf2c5eed85a2702bbad1ad2",
-      "size": 82967,
+      "sha256": "a824f1e900b911c91ebb3836dc79a94b6d19fd7d7c5eeba3e2fed1e39db8146e",
+      "size": 83858,
       "role": "runtime"
     },
     {
@@ -796,7 +796,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "762d5492305e6fcf442d034f62290bfd6bbccd9fc5b86fece28276dfe8746c85"
+    "sha256": "68dc130304fb71bca5f57b422d6a65b7cb537765b1ea8248a752d4fd3342e1b1"
   },
   "supportedPlatforms": [
     "darwin",
@@ -829,5 +829,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "a3e2713a1337b51a58cad9b3aedbbe91bc0ee05c33328c0c9b6b068d074d3544"
+  "releaseDigest": "ffa8819bced7a21bddc74efe28b1836af27fdb67bb477708a12958215ff48319"
 }

@@ -6,6 +6,19 @@ const {makeDataDir,seedProject,startServer,startMcp}=require("./helpers");
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const post=(base,p,body)=>fetch(base+p,{method:"POST",headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)})
   .then(async r=>({status:r.status,body:await r.json()}));
+function exportState(dir) {
+  const tree=relative=>{
+    const root=path.join(dir,relative),files=[];
+    if(!fs.existsSync(root))return files;
+    const walk=p=>{for(const name of fs.readdirSync(path.join(root,p)).sort()){
+      const file=path.join(p,name),full=path.join(root,file);
+      if(fs.statSync(full).isDirectory())walk(file);
+      else files.push([file,fs.readFileSync(full).toString("hex")]);
+    }};
+    walk("");return files;
+  };
+  return {project:fs.readFileSync(path.join(dir,"project.json")).toString("hex"),media:tree("media"),exports:tree("exports")};
+}
 async function boot(t,kind="no-gate") {
   const dir=makeDataDir(t,seedProject({revision:7}));
   fs.mkdirSync(path.join(dir,"media"));fs.writeFileSync(path.join(dir,"media","a.mp4"),"unit media; never decoded");
@@ -25,13 +38,59 @@ async function onlyTicket(dir,base) {
   }
   assert.fail("original export job was not admitted");
 }
-test("export validates range/profile and always admits a frozen headless document",async t=>{
+test("export validates range and profile before admission",async t=>{
   const {base}=await boot(t);
   assert.equal((await post(base,"/api/export/request",{range:"half"})).status,400);
   assert.equal((await post(base,"/api/export/request",{profile:"no-such-profile"})).status,400);
-  const admitted=await post(base,"/api/export/request",{where:"tab",range:"entire"});
+});
+test("export rejects tab and invalid renderer modes before capture or any job side effect",async t=>{
+  const {dir,base}=await boot(t,"capture"),before=exportState(dir);
+  try {
+    for(const [where,status,error] of [
+      ["tab",409,/tab.*not supported.*frozen snapshot/i],
+      ...["elsewhere","",null,false,0,{},[]].map(where=>[where,400,/where must be/i]),
+    ]) {
+      const response=await fetch(base+"/api/export/request",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({where}),signal:AbortSignal.timeout(1500)});
+      assert.equal(response.status,status,JSON.stringify(where));assert.match((await response.json()).error,error);
+      assert.equal(fs.existsSync(path.join(dir,"gate","ready")),false,"the snapshot capture boundary was never entered");
+      assert.deepEqual(exportState(dir),before,"a refused renderer must not change project, media, snapshots or jobs");
+    }
+    for(const body of [null,[],false,"tab"]) {
+      const response=await post(base,"/api/export/request",body);
+      assert.equal(response.status,400);assert.match(response.body.error,/request must be an object/);
+      assert.equal(fs.existsSync(path.join(dir,"gate","ready")),false);
+      assert.deepEqual(exportState(dir),before,"invalid request shapes have no export side effects");
+    }
+  } finally {
+    // Unblock the unit capture substitute if old code reached it, so a red
+    // regression can still clean up its own temporary server.
+    if(fs.existsSync(path.join(dir,"gate","ready")))fs.writeFileSync(path.join(dir,"gate","release"),"unit cleanup");
+  }
+});
+for(const where of [undefined,"auto","headless"])test(`export ${where===undefined?"omitted renderer":where} admits the original frozen headless document`,async t=>{
+  const {base}=await boot(t);
+  const admitted=await post(base,"/api/export/request",{...(where===undefined?{}:{where}),range:"entire"});
   assert.equal(admitted.status,200);assert.equal(admitted.body.via,"headless");
   assert.equal(admitted.body.snapshot.receipt.projectRevision,7);assert.equal(admitted.body.snapshot.receipt.files.length,1);
+});
+test("export MCP schema advertises frozen modes without narrowing the other tab tools",async t=>{
+  const {dir,port}=await boot(t),mcp=startMcp(t,dir,{PORT:String(port),FABLECUT_NO_AUTOSTART:"1"});
+  await mcp.request("initialize",{protocolVersion:"2025-11-25"});
+  const listed=await mcp.request("tools/list"),tools=listed.result.tools;
+  assert.deepEqual(tools.find(tool=>tool.name==="fablecut_export").inputSchema.properties.where.enum,["auto","headless"]);
+  for(const name of ["fablecut_frame","fablecut_scopes","fablecut_track"])
+    assert.ok(tools.find(tool=>tool.name===name).inputSchema.properties.where.enum.includes("tab"),name+" keeps its tab capability");
+});
+test("raw MCP export preserves invalid renderer arguments for rejection without creating a job",async t=>{
+  const {dir,port}=await boot(t),mcp=startMcp(t,dir,{PORT:String(port),FABLECUT_NO_AUTOSTART:"1"}),before=exportState(dir);
+  await mcp.request("initialize",{protocolVersion:"2025-11-25"});
+  for(const where of ["tab","elsewhere","",null,false,0]) {
+    const result=await mcp.callTool("fablecut_export",{where,wait:false});
+    assert.equal(result.isError,true,JSON.stringify(where)+": "+result.text);
+    assert.match(result.text,where==="tab"?/tab.*not supported.*frozen snapshot/i:/where must be/i);
+    assert.deepEqual(exportState(dir),before,"MCP cannot replace an invalid renderer choice with an admitted job");
+  }
 });
 test("a missing prepared browser fails admission and removes its unowned snapshot",async t=>{
   const {dir,base}=await boot(t,"no-browser");

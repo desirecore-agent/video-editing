@@ -999,10 +999,19 @@ const server = http.createServer(async (req, res) => {
 
   /* API: agent-requested export jobs (see export-jobs.js).
      POST /api/export/request {range?, profile?, where?} → job; GET /api/export/job?id=
-     polls it; the editor tab claims, reports and finishes it. */
+     polls it; a dedicated frozen-input browser claims, reports and finishes it. */
   if (p === "/api/export/request" && req.method === "POST") {
     try {
       const opts = JSON.parse((await readBody(req)).toString("utf8") || "{}");
+      if (!opts || typeof opts !== "object" || Array.isArray(opts))
+        throw Object.assign(new Error("export request must be an object"), {code:400});
+      const where = opts.where === undefined ? "auto" : opts.where;
+      // A live editor uses mutable project/playhead state. Refuse that renderer
+      // before capture rather than silently replacing the caller's choice.
+      if (where === "tab")
+        throw Object.assign(new Error('where:"tab" is not supported for frozen snapshot exports; use where:"auto" or "headless"'), {code:409});
+      if (!["auto", "headless"].includes(where))
+        throw Object.assign(new Error('where must be "auto" or "headless" for frozen snapshot exports'), {code:400});
       const admitted=ProjectStore.read(PROJECT_FILE);
       if ((opts.projectId !== undefined && opts.projectId !== admitted.projectId) ||
           (opts.revision !== undefined && opts.revision !== admitted.revision) || projects.peekActive() !== admitted.projectId)
@@ -1047,6 +1056,8 @@ const server = http.createServer(async (req, res) => {
         const afterCapture=ProjectStore.read(PROJECT_FILE);
         if(afterCapture.projectId!==admitted.projectId || afterCapture.revision!==admitted.revision || projects.peekActive()!==admitted.projectId)
           throw Object.assign(new Error("project changed during export snapshot capture; re-read and submit deliberately"),{code:409});
+        // Both supported export modes render the frozen document independently;
+        // other job kinds retain their existing tab/headless selection.
         job=exportJobs.request({ range: opts.range, profile: opts.profile, delivery: deliveries ? null : delivery, deliveries, where: "headless", revision: snapshot.receipt.projectRevision, snapshot });
       } catch(e) { await ExportSnapshot.discard(DATA_DIR,snapshot.id); throw e; }
       sendJSON(res, 200, deliveries ? { ...job, delivery: `${deliveries.length} outputs from one render`, notes: outNotes }

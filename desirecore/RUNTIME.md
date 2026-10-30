@@ -38,4 +38,6 @@ macOS/Linux ZIP 解压使用系统 `unzip`，Windows 使用系统 `tar.exe`；�
 
 GUI、MCP 同源提交 projectId/baseRevision；冲突保留 UI 草稿。声明本地媒体在原 job 提交时逐文件复制冻结，动态 SVG/网络资源和 OS 字体仍未完整闭包。多帧率 aggregate 由全部组统一终结；取消只归属原编码会话，晚到 begin 仍需清理后返回。回执持久化，重启后原 ID 为 interrupted，不自动续跑。结果未知先查原 job；retry 明确创建新任务。
 
+GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 job 的冻结输入，不使用可变的当前编辑页。导出的 `where` 省略或为 `auto`、`headless` 时使用这一后台渲染器；显式 `tab` 在捕获快照前返回 409，其它无效值返回 400，不创建快照、作业或浏览器，也不更改工程和媒体。`auto` 不表示优先当前编辑页。此限制仅适用于导出；`fablecut_frame`、`fablecut_scopes`、跟踪和转录等工具各自的 `tab` 合同不变。
+
 原可选 Whisper ASR、MediaPipe、Google Fonts 仍可连接其上游外部资源，模型和动态网络资源不在本原生资产清单内；没有默认收费生成或隐含 Provider。旧 WebCodecs/MediaRecorder UI 实时输出未满足固定输入合同，明确不可用。

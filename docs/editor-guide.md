@@ -67,7 +67,8 @@ installation or startup procedure.
 - `fablecut_captions` — caption clips from the transcript, timed word by word (subtitle,
   karaoke, highlight, word pop); export or import SRT / WebVTT. See "Captions" below.
 - `fablecut_export` — render the timeline to a file in `exports/` with the editor's own
-  Fast export (open tab, or headless Chrome / Edge). See "Export" below.
+  Fast compositor in an independent prepared browser, using the admitted snapshot.
+  See "Export" below.
 - `fablecut_scopes` — measure the graded picture at a moment (levels, clipping, colour
   cast), as the editor's scopes see it; also what a grade layer or a clip's masks
   select. See "Color" and "Masks" below.
@@ -932,8 +933,8 @@ long way — ±0.02…0.05 on lift and offset, ±0.05…0.15 on gamma and gain.
   starts the layer from scratch (keeping its name), `remove:true` deletes it.
   `ids:[…]` works too.
 - `fablecut_scopes {time}` renders the graded frame at `time` (default: the
-  playhead) exactly as export would — an open editor tab, else headless — and
-  returns numbers: luma min / 1st percentile / median / mean / 99th percentile /
+  playhead) with the export compositor. The scope reading uses an open editor
+  tab, else headless, and returns numbers: luma min / 1st percentile / median / mean / 99th percentile /
   max (0–1), the % of pixels at pure black and pure white, mean R/G/B, average
   saturation, and the midtones' colour cast (hue name, hue angle, strength;
   "neutral" below 0.01), plus the clips on screen and their grades. With an
@@ -2107,7 +2108,7 @@ Timeline mode answers "what did I actually build?" — the same picture the user
 sees and export renders, grades and transitions included.
 
 Needs ffmpeg on PATH for the source modes. Timeline mode runs in the open editor
-tab, else a headless browser, like `fablecut_export`.
+tab, else a headless browser.
 
 ## Remake a reference video (analyze → blueprint → rebuild)
 
@@ -2267,12 +2268,15 @@ obvious cuts were missed, raise it if motion is being misread as cuts.
   · `POST /api/export/audio?id=` (WAV body — must be sent before the first frame)
   · `POST /api/export/end?id=[&discard=1]` → `{src}` under `/exports/`
 - Export jobs (what `fablecut_export` drives): `POST /api/export/request`
-  `{range?, profile?, where?:"auto"|"tab"|"headless"}` → `{id, status, via, …}`
-  (409 if one is already running, or nothing can render it) · `GET /api/export/job?id=`
+  `{range?, profile?, where?:"auto"|"headless"}` → `{id, status, via:"headless", snapshot, …}`.
+  Both modes render the admitted frozen document independently of the live editor.
+  Explicit `where:"tab"` returns 409 before capture; other invalid values return 400,
+  without changing the project/media or creating a snapshot, job or browser.
+  Admission also returns 409 if one is already running or nothing can render it. `GET /api/export/job?id=`
   → `{status: pending|running|done|failed|cancelled, progress 0–1, src, error}` ·
-  `POST /api/export/job/cancel?id=`. The editor tab side: SSE event `export`
-  (a ticket), `GET /api/export/job/ticket?id=`, `POST /api/export/job/claim?id=`
-  (first tab wins, else 409), `POST /api/export/job/report?id=`
+  `POST /api/export/job/cancel?id=`. The dedicated renderer reads
+  `GET /api/export/job/ticket?id=`, then `POST /api/export/job/claim?id=`
+  (the original job claims once, else 409), `POST /api/export/job/report?id=`
   `{progress} | {status:"done", src} | {status:"failed", error}` → `{cancel}`.
 
 ## Recipes
@@ -2482,7 +2486,11 @@ WebCodecs / Realtime export, and `/api/export/begin` all use this value; pass th
 
 ## Export
 
-Export is the Export button → dialog, or `fablecut_export` from an agent (below). Three engines:
+Export is the Export button → dialog, or `fablecut_export` from an agent (below).
+The fixed-input delivery path enables **Fast** through an independent prepared
+browser. The retained upstream WebCodecs and Realtime implementations described
+below are unavailable in the current UI because they do not satisfy this snapshot
+contract; they are not automatic fallbacks.
 
 1. **Fast** — browser renders each frame with the normal compositor (SVG, keys,
    AI masks), streams JPEGs + an offline WAV mix to the server; a single ffmpeg
@@ -2497,9 +2505,9 @@ Export is the Export button → dialog, or `fablecut_export` from an agent (belo
    Optional `bitrateMode: "quantizer"` (fixed QP) exists in the spec but is rarely
    supported by hardware encoders with Annex-B. Unavailable while an `exportFrame`
    crop is set — use Fast for cropped delivery.
-3. **Realtime (MediaRecorder)** — automatic offline fallback when the server,
-   ffmpeg, or WebCodecs is unavailable. Plays the timeline once and records it;
-   keep the tab focused.
+3. **Realtime (MediaRecorder, retained upstream implementation)** — plays the
+   timeline once and records it with the tab focused. Unavailable for fixed-input
+   delivery; a missing server or encoder is reported instead of selecting it.
 
 Fast and WebCodecs export decode MP4 / MOV clips with WebCodecs
 (`mp4-demux.js` + `VideoDecoder`), frame-exact. Fragmented, rotated or
@@ -2518,11 +2526,11 @@ cannot produce a one-frame black file.
 
 **Agents export with `fablecut_export`** (or `POST /api/export/request`). It is
 the same Fast export as the button — same compositor, audio mix and encoding
-profile — so it needs ffmpeg on PATH. The job goes to an open editor tab (the
-user sees the progress bar), or, with none open, the server starts a headless
-Chrome / Edge on the editor and closes it when the file is written
-(`FABLECUT_CHROME` picks the browser). The tab first loads the revision the
-agent last wrote, so an export right after a patch includes that patch.
+profile — so it needs ffmpeg and the prepared browser. Admission captures the
+saved project and declared local media; a dedicated `?exportJob=<id>` page loads
+that snapshot and renders it in the background. The live editor's project and
+playhead remain available for editing. Dynamic SVG/network dependencies and OS
+fonts are not a complete frozen dependency closure.
 
 - `fablecut_export {}` — waits, then returns the file path under `exports/`.
   Range: `inPoint`→`outPoint` when either is set, else the whole timeline;
@@ -2534,8 +2542,12 @@ agent last wrote, so an export right after a patch includes that patch.
 - `outputs:true` exports the project's checked batch outputs; `outputs:[{preset:"master"},
   {preset:"youtube"}, {preset:"instagram-reels"}, …]` exports a list. One render per
   frame rate; the reply lists every file (or why one failed).
-- `where:"headless"` renders in the background and leaves the user's tab alone;
-  `where:"tab"` refuses if no tab is open.
+- Omit `where`, or pass `where:"auto"|"headless"`, to use the independent frozen
+  renderer. `auto` does not prefer a live editing tab. `where:"tab"` is unsupported
+  and refused before capture, even with an editor open; it is never silently
+  replaced by another renderer. Other invalid values are rejected rather than
+  defaulted. Frame, scopes, tracking and transcription tools retain their own
+  tab/headless choices.
 - Long edits: `wait:false` returns a job id at once; poll with `{job:"x_…"}`
   and stop one with `{cancel:"x_…"}`. One export runs at a time.
 

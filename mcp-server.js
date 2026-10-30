@@ -461,7 +461,7 @@ const TOOLS = [
   },
   {
     name: "fablecut_export",
-    description: "Render the timeline to a video file in exports/ — the editor's own Fast export (same compositor, audio mix and encoding profile as the Export button), so the file matches what the user sees. It runs in a browser: an open editor tab takes the job (the user sees the progress bar), or with no tab open the server starts headless Chrome / Edge (set FABLECUT_CHROME to pick one) and closes it afterwards. Waits for the file by default and returns its path. Range: the project's inPoint→outPoint when set, else the whole timeline (or pass range). Needs ffmpeg on PATH. One export at a time. Long edits: pass wait:false, then poll with {job}; {cancel:job} stops one.",
+    description: "Render the timeline to a video file in exports/ with the editor's own Fast compositor, audio mix and encoding profile. Admission freezes the saved project and declared local media; a dedicated prepared headless browser renders that snapshot without changing the user's live editor. auto and headless use this independent renderer; tab export is unsupported and refused before capture. Waits for the file by default and returns its path. Range: the project's inPoint→outPoint when set, else the whole timeline (or pass range). Needs ffmpeg and the prepared browser. One export at a time. Long edits: pass wait:false, then poll with {job}; {cancel:job} stops one.",
     inputSchema: {
       type: "object",
       properties: {
@@ -470,7 +470,7 @@ const TOOLS = [
         delivery: { type: "object", description: "Delivery settings over the preset (or over custom): {width, height (null = the picture's size), fps (null = the project's), reframe:'fill'|'fit'|'stretch', container:'mp4'|'mov'|'mkv'|'webm'|'mxf', video:{codec:'h264'|'hevc'|'av1'|'vp9'|'prores'|'dnxhr'|'mpeg2'|'ffv1', encoder?, rate:'crf'|'vbr'|'cbr', crf, bitrate (kb/s), maxrate (kb/s), keyint (s), pixFmt, speed:'fast'|'balanced'|'best', profile (prores: proxy|lt|standard|hq|4444|4444xq · dnxhr: lb|sq|hq|hqx|444)}, audio:{codec:'aac'|'opus'|'mp3'|'pcm16'|'pcm24'|'flac'|'none', bitrate (kb/s), sampleRate, channels, loudness (LUFS target: -14 streaming/social, -16 podcast, -23 EBU R128, -24 ATSC; null = as mixed), truePeak (dBTP ceiling, default -1)}, color:'bt709'|'bt709-full'|'bt601-625'|'bt601-525', filename:'{project}_{preset}_{res}' (tokens {project} {preset} {res} {w} {h} {fps} {codec} {date} {time} {range} {n}), metadata:{title, artist, description, copyright, date, keywords}}. Anything left out comes from the preset; impossible combinations are corrected and the reply says how. Every finished file is checked against what was asked (size, fps, frames, codecs, length, loudness, true peak, file size) and the reply lists the checks" },
         outputs: { description: "Several files, rendered once per frame rate (up to 8 outputs per render): true = the project's checked batch outputs (project.outputs, set with setProject {outputs:[…]}), or a list like [{preset:'master'}, {preset:'youtube'}, {preset:'instagram-reels'}, {preset:'custom', width:1080, height:1080, filename:'{project}_square_{res}'}, {preset:'web', filename:'{project}_preview_{res}'}]. Outputs with the same fps share one render; the reply lists every file", anyOf: [{ type: "boolean" }, { type: "array", items: { anyOf: [{ type: "string" }, { type: "object" }] } }] },
         profile: { type: "string", description: "Encoding profile id (raw ffmpeg args, fablecut_encode_profiles) instead of a preset. With neither: project.delivery, else project.encodeProfile, else the server's default profile" },
-        where: { type: "string", enum: ["auto", "tab", "headless"], description: "auto (default): an open editor tab, else headless · tab: only an open tab · headless: always a background browser, leaving the user's tab alone" },
+        where: { type: "string", enum: ["auto", "headless"], description: "auto (default) and headless render the frozen snapshot in an independent prepared browser. The live editing tab is not an export renderer; an explicit tab request is refused before capture." },
         wait: { type: "boolean", description: "Block until the file is written (default true)" },
         timeout: { type: "number", description: "Seconds to wait before returning the job's status instead (default 900); the export keeps running" },
         job: { type: "string", description: "Report on an export started earlier instead of starting one" },
@@ -1371,7 +1371,7 @@ async function exportTool(args) {
     if (r.status !== 200) throw new Error(r.body?.error || "no such export job");
     job = r.body;
   } else {
-    const r = await apiJSON("POST", "/api/export/request", { range: args.range, profile: args.profile, preset: args.preset, delivery: args.delivery, outputs: args.outputs, where: args.where || "auto" });
+    const r = await apiJSON("POST", "/api/export/request", { range: args.range, profile: args.profile, preset: args.preset, delivery: args.delivery, outputs: args.outputs, where: args.where === undefined ? "auto" : args.where });
     if (r.status !== 200) throw new Error(r.body?.error || `export request failed (${r.status})`);
     job = r.body;
     if (job.notes && job.notes.length) startNote = `Settings adjusted: ${job.notes.join("; ")}\n`;
