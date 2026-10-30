@@ -403,16 +403,22 @@ body.track-size-s .clip.selected {
   align-items: center;
 }
 
-/* Media bin: the add buttons share one row, no heading beside them. */
+/* The bin can stay narrow beside a wide monitor. Let readable actions wrap
+   at the bin's own width instead of shrinking their labels into each other. */
+.panel.bin > .panel-head {
+  flex: 0 0 auto;
+}
+
 .panel-head-actions.bin-actions {
   flex: 1;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   min-width: 0;
 }
 
 .panel-head-actions.bin-actions .btn {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
+  min-width: max-content;
   justify-content: center;
   text-align: center;
   white-space: nowrap;
@@ -4604,7 +4610,7 @@ body { background: var(--bg); }
   .transport-end { grid-row: 2; justify-self: end; }
   .app.ws-color .upper { grid-template-columns: 248px minmax(0, 1fr) 280px; }
 }
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .workspace-nav {
     display: flex; flex: none; gap: 4px; padding: 2px;
     border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--panel-sub);

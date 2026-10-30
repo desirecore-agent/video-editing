@@ -136,3 +136,35 @@ test("theme assets load before the editor and every Canvas palette property has 
   assert.doesNotMatch(js, /localStorage|sessionStorage|conveyor|\.require\(|postMessage|parent\.document/);
   assert.doesNotMatch(style, /#preview\s*\{[^}]*filter:/);
 });
+
+test("media actions wrap at the bin width without shrinking their readable labels", () => {
+  const style = fs.readFileSync(path.join(__dirname, "../style.css"), "utf8");
+  const rule = (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const body = style.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]+)\\}`))?.[1];
+    assert.ok(body, selector);
+    return Object.fromEntries(body.split(";").filter(part => part.includes(":"))
+      .map(part => { const at = part.indexOf(":"); return [part.slice(0, at).trim(), part.slice(at + 1).trim()]; }));
+  };
+  assert.equal(rule(".panel-head-actions.bin-actions")["flex-wrap"], "wrap");
+  assert.equal(rule(".panel.bin > .panel-head").flex, "0 0 auto");
+  const button = rule(".panel-head-actions.bin-actions .btn");
+  assert.equal(button.flex, "1 0 auto");
+  assert.equal(button["min-width"], "max-content");
+  assert.equal(button["white-space"], "nowrap");
+});
+
+test("a 960px companion workspace exposes a full-width preview and keeps the other panels discoverable", () => {
+  const style = fs.readFileSync(path.join(__dirname, "../style.css"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  const compact = [...style.matchAll(/@media\s*\(max-width:\s*(\d+)px\)\s*\{([\s\S]*?)(?=@media|$)/g)]
+    .find(([, , body]) => body.trimStart().startsWith(".workspace-nav {"));
+  assert.ok(compact, "the existing compact workspace must remain available");
+  assert.ok(Number(compact[1]) >= 960, "switch panels before companion chat leaves an unusable center column");
+  assert.match(compact[2], /\.upper > \.panel\s*\{[^}]*flex:\s*0 0 100%/);
+  assert.match(compact[2], /\.upper > \.monitor\s*\{[^}]*order:\s*0/);
+  assert.doesNotMatch(compact[2], /\.upper > \.(?:bin|inspector)\s*\{[^}]*display:\s*none/);
+  for (const id of ["monitorPanel", "mediaBinPanel", "inspectorPanel"]) {
+    assert.ok(html.includes(`href="#${id}"`) && html.includes(`id="${id}"`), id);
+  }
+});
