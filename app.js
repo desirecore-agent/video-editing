@@ -20654,8 +20654,9 @@ function repaintEditorTheme() {
   paintMixerMeters();
   // Never interrupt a compositor that is exporting/sampling an exact frame.
   if (!state.exporting && !runtime.sampling) {
-    if (!state.playing) drawFrame();
-    if (!state.source.playing) drawSourceFrame();
+    // Both monitors share the preview canvas; repaint only its paused owner.
+    if (state.monitorMode === "program" && !state.playing) drawFrame();
+    else if (state.monitorMode === "source" && !state.source.playing) drawSourceFrame();
   }
 }
 window.addEventListener("desirecore:themechange", repaintEditorTheme);

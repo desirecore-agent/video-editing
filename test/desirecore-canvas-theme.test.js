@@ -51,3 +51,77 @@ test("theme repaint keeps an active export compositor and row DOM untouched",()=
   vm.runInNewContext(fn("repaintEditorTheme")+"\nrepaintEditorTheme();",context);
   assert.equal(frames,0);assert.equal(rebuilds,0);
 });
+
+// Execute the real repaint and both monitor renderers against one shared
+// canvas. A Source clear therefore destroys the same frame Program just drew.
+function monitorHarness({ mode="program", playing=false, sourcePlaying=false, exporting=false, sampling=false, media=null }={}) {
+  const cv=canvas(),paint={color:"#334455",text:["existing preview"]},programTimes=[],sourceImages=[],sourceDestinations=[];
+  cv.width=1280;cv.height=720;
+  cv.context.fillRect=()=>{paint.color=cv.context.fillStyle;paint.text=[];};
+  cv.context.fillText=text=>paint.text.push(String(text));
+  cv.context.drawImage=(img,...destination)=>{sourceImages.push(img);sourceDestinations.push(destination);paint.color=img.pixelColor;paint.text=[];};
+  const project={projectId:"theme-preview",revision:7,background:"#ff1800",clips:[{id:"picture",mediaId:"video",start:0,duration:12}]};
+  const state={monitorMode:mode,time:3,playing,exporting,source:{mediaId:media?.id??null,time:2,playing:sourcePlaying}};
+  const ui={ruler:0,wave:0,graphs:0,meters:0,rebuilds:0},wave={},element={dataset:{id:"picture"},querySelector:()=>wave};
+  const image={naturalWidth:1280,naturalHeight:720,pixelColor:"#2468ac"};
+  const context=vm.createContext({
+    project,state,ctx2d:cv.context,els:{preview:cv,tracks:{querySelectorAll:()=>[element]}},
+    runtime:{sampling,mediaAux:new Map(media?[[media.id,{img:image}]]:[])},
+    DesireCoreTheme:{snapshot:()=>({palette:{overlayMuted:"#aabbcc"}})},
+    visibleClipsAt:t=>{programTimes.push(t);return [];},matteTracksAt:()=>new Set(),
+    drawMaskView(){},updateScopes(){},drawNullGuides(){},drawSelectionOverlay(){},
+    sourceMedia:()=>media,
+    drawRuler(){ui.ruler++;},getClip:id=>project.clips.find(c=>c.id===id),trackOf:()=>({h:58}),
+    drawClipWave(canvas,clip,height){assert.equal(canvas,wave);assert.equal(clip,project.clips[0]);assert.equal(height,58);ui.wave++;},
+    updateKfGraphs(){ui.graphs++;},meterState:{lastLit:{old:1},lastHold:{old:1}},paintMixerMeters(){ui.meters++;},
+    rebuildClips(){ui.rebuilds++;},
+  });
+  vm.runInContext(["uiColor","drawFrame","drawSourceContain","drawSourceFrame","repaintEditorTheme"].map(fn).join("\n"),context);
+  return {context,paint,project,state,ui,programTimes,sourceImages,sourceDestinations,image,repaint:()=>context.repaintEditorTheme()};
+}
+function assertChromeRepainted(h,count=1) {
+  assert.deepEqual(h.ui,{ruler:count,wave:count,graphs:count,meters:count,rebuilds:0});
+  assert.deepEqual(Object.keys(h.context.meterState.lastLit),[]);
+  assert.deepEqual(Object.keys(h.context.meterState.lastHold),[]);
+}
+test("host theme repaint preserves paused Program when its shared Source is empty",()=>{
+  const h=monitorHarness(),before=JSON.stringify(h.project);
+  for(const color of ["#aabbcc","#112233"]) {
+    h.context.DesireCoreTheme={snapshot:()=>({palette:{overlayMuted:color}})};
+    h.repaint();
+    assert.equal(h.paint.color,h.project.background,"the composed Program background stays on the shared canvas");
+    assert.deepEqual(h.paint.text,[],"an empty Source must not replace Program with its prompt");
+    assert.equal(JSON.stringify(h.project),before);
+    assert.equal(h.state.time,3);assert.equal(h.state.monitorMode,"program");assert.equal(h.state.source.mediaId,null);
+  }
+  assert.deepEqual(h.programTimes,[3,3]);assertChromeRepainted(h,2);
+});
+test("paused Source repaints its empty prompt or loaded image without drawing Program",()=>{
+  const empty=monitorHarness({mode:"source"});empty.repaint();
+  assert.equal(empty.paint.color,"#000");
+  assert.deepEqual(empty.paint.text,["Double-click a clip to load Source"]);
+  assert.deepEqual(empty.programTimes,[]);assertChromeRepainted(empty);
+  const loaded=monitorHarness({mode:"source",media:{id:"source-image",kind:"image"}});loaded.repaint();
+  assert.equal(loaded.paint.color,"#2468ac");assert.deepEqual(loaded.sourceImages,[loaded.image]);
+  assert.deepEqual(loaded.sourceDestinations,[[0,0,1280,720]]);
+  assert.deepEqual(loaded.programTimes,[]);assertChromeRepainted(loaded);
+});
+test("inactive monitor playback does not suppress the paused active monitor repaint",()=>{
+  const program=monitorHarness({sourcePlaying:true});program.repaint();
+  assert.equal(program.paint.color,program.project.background);assert.deepEqual(program.paint.text,[]);
+  assert.deepEqual(program.programTimes,[3]);assertChromeRepainted(program);
+  const source=monitorHarness({mode:"source",playing:true});source.repaint();
+  assert.equal(source.paint.color,"#000");assert.deepEqual(source.paint.text,["Double-click a clip to load Source"]);
+  assert.deepEqual(source.programTimes,[]);assertChromeRepainted(source);
+});
+test("playing, exporting and exact-frame sampling retain the existing preview while UI chrome repaints",()=>{
+  for(const options of [
+    {mode:"program",playing:true},{mode:"source",sourcePlaying:true},
+    {mode:"program",exporting:true},{mode:"source",exporting:true},
+    {mode:"program",sampling:true},{mode:"source",sampling:true},
+  ]) {
+    const h=monitorHarness(options),before=JSON.stringify(h.paint);h.repaint();
+    assert.equal(JSON.stringify(h.paint),before,JSON.stringify(options));
+    assert.deepEqual(h.programTimes,[],JSON.stringify(options));assertChromeRepainted(h);
+  }
+});
