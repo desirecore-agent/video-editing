@@ -702,8 +702,24 @@ body.track-size-s .clip.selected {
 }
 
 /* ── Monitor ── */
+/* A monitor can be narrow inside a wide host. Keep the mode controls in flow;
+   size the actions by their content so they wrap before covering the title. */
+.monitor > .panel-head {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: var(--ui-gap);
+}
+.monitor .panel-head-title {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+.monitor .panel-head-actions {
+  flex: 1 1 min-content;
+  min-width: 0;
+}
 .monitor-mode {
   display: inline-flex;
+  flex: none;
   gap: 2px;
   text-transform: none;
   letter-spacing: normal;
@@ -718,6 +734,7 @@ body.track-size-s .clip.selected {
   color: var(--text);
 }
 .monitor-clip-name {
+  min-width: 0;
   max-width: 18em;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4580,8 +4597,7 @@ body { background: var(--bg); }
   .topbar-center { flex-basis: 100px; }
   .timeline-toolbar { overflow-x: auto; flex: none; }
   .timeline-toolbar > * { flex-shrink: 0; }
-  .monitor .panel-head { flex-wrap: wrap; gap: 5px; }
-  .monitor .panel-head-actions { flex-wrap: wrap; justify-content: flex-start; }
+  .monitor .panel-head-actions { justify-content: flex-start; }
   .transport { grid-template-columns: 1fr; gap: 6px; padding: 6px 8px; }
   .transport-btns { grid-row: 1; justify-self: center; }
   .tc-playhead { grid-row: 2; }

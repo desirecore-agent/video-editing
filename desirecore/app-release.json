@@ -759,8 +759,8 @@
     },
     {
       "path": "style.css",
-      "sha256": "d5356e4832a84e05687c4b26a56fb71330343682c52d8ccc472f9e6f03c2bb11",
-      "size": 102396,
+      "sha256": "ab9393fcb080316b9d32b8b5fffee91e00e17d2e006379ca52057815f5a3570b",
+      "size": 102742,
       "role": "ui"
     },
     {
@@ -796,7 +796,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "c87bdcf0a0b70a8ac6018b9a89971bf3bba31dbaa0dfd3a25c2d91752d0daad0"
+    "sha256": "762d5492305e6fcf442d034f62290bfd6bbccd9fc5b86fece28276dfe8746c85"
   },
   "supportedPlatforms": [
     "darwin",
@@ -829,5 +829,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "f5e2ca8b7bf9f0963517251bf38f1ca684e448602ee722f68c0e0c25c2880cd3"
+  "releaseDigest": "a3e2713a1337b51a58cad9b3aedbbe91bc0ee05c33328c0c9b6b068d074d3544"
 }
