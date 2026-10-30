@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   FableCut server — zero-dependency Node.js
+   视频剪辑 server — zero-dependency Node.js
    Run:  node server.js   →  http://localhost:7777
 
    Adds to the browser editor:
@@ -12,7 +12,7 @@
                                                     encoding-profiles.json)
 
    Automation: any tool (e.g. Claude Code) can edit project.json or drop files
-   into ./media — the browser UI reloads instantly. Schema: see CLAUDE.md.
+   into ./media — the browser UI reloads instantly. Schema: see docs/editor-guide.md.
    ═══════════════════════════════════════════════════════════════════════════ */
 "use strict";
 const http = require("http");
@@ -54,7 +54,12 @@ const { createHistory } = require("./history");
 /* Static app files are served from the install dir; everything the user creates
    lives under DATA_DIR. The two are the same unless FABLECUT_DATA_DIR is set. */
 const ROOT = APP_DIR;
-const PORT = process.env.PORT || 7777;
+const PORT = process.env.PORT || process.env.FABLECUT_PORT || 7777;
+const ProjectStore = require("./project-store");
+const snapshotCaptureAbort = new AbortController();
+const ExportSnapshot = require("./export-snapshot");
+const ManagedRuntime = require("./managed-runtime");
+const lease = ManagedRuntime.serviceLease(DATA_DIR, PORT);
 const HOST = process.env.HOST || "127.0.0.1";
 
 /* Requests must come from the local machine (or an explicitly allowed host).
@@ -119,6 +124,8 @@ if (!fs.existsSync(PROJECT_FILE)) {
 }
 
 /* ── SSE clients + file watching ── */
+// Stamp the open identity once before accepting requests. Thereafter all writes use this service.
+{ const initial=ProjectStore.read(PROJECT_FILE); const id=projects.activeId(); if(initial.projectId!==id){initial.projectId=id;ProjectStore.atomic(PROJECT_FILE,initial);} }
 const sseClients = new Set();
 function broadcast(event = "change", data = event) {
   const payload = `event: ${event}\ndata: ${data}\n\n`;
@@ -515,17 +522,32 @@ function startAnnexbEncoder(sess) {
   attachProc(sess, spawn("ffmpeg", args, { stdio: ["pipe", "ignore", "pipe"] }));
   return sess.proc;
 }
+const encoderStops = new WeakMap();
+function stopEncoder(proc) {
+  if(!proc || proc.exitCode!==null || proc.signalCode) return Promise.resolve(true);
+  if(encoderStops.has(proc))return encoderStops.get(proc);
+  const stopped=new Promise(resolve=>{
+    let done=false;const finish=value=>{if(done)return;done=true;clearTimeout(escalate);clearTimeout(deadline);resolve(value);};
+    const escalate=setTimeout(()=>{if(proc.exitCode===null&&!proc.signalCode)try{proc.kill("SIGKILL");}catch{}},750);
+    const deadline=setTimeout(()=>finish(false),4000);
+    proc.once("close",()=>finish(true));
+    try{proc.stdin?.destroy();}catch{}
+    try{proc.kill("SIGTERM");}catch{}
+  });
+  encoderStops.set(proc,stopped);return stopped;
+}
 function cleanupExport(id) {
-  const s = exportSessions.get(id);
-  if (!s) return;
+  const s=exportSessions.get(id);if(!s)return Promise.resolve({encoderConfirmed:true,cleanupConfirmed:true});
   exportSessions.delete(id);
-  try { s.proc?.kill(); } catch {}
-  for (const o of s.outputs || []) {
-    try { o.proc?.kill(); } catch {}
-    if (o.partPath) try { fs.rmSync(o.partPath, { force: true }); } catch {}
-  }
-  try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch {}
-  if (s.partPath) try { fs.rmSync(s.partPath, { force: true }); } catch {}
+  const stops=[stopEncoder(s.proc),...(s.outputs||[]).map(o=>stopEncoder(o.proc))];
+  // Windows cannot unlink an encoder's open output/WAV handle. Join physical
+  // close first, then delete only this exact session's paths.
+  return Promise.all(stops).then(results=>{
+    let clean=true;const remove=(file,recursive=false)=>{if(file)try{fs.rmSync(file,{recursive,force:true});}catch{clean=false;}};
+    for(const o of s.outputs||[])remove(o.partPath);
+    remove(s.dir,true);remove(s.partPath);
+    return {encoderConfirmed:results.every(Boolean),cleanupConfirmed:clean};
+  });
 }
 function sweepIdleExports() {
   const now = Date.now();
@@ -545,7 +567,10 @@ function stopExportSweep() {
 
 /* Agent-requested exports: handed to an open editor tab over SSE, or to a
    headless browser the server starts (export-jobs.js). */
+const cancellationStops = new Map();
 const exportJobs = createExportJobs({
+  storeDir: path.join(EXPORTS_DIR, "jobs"),
+  onCancel: id => { const stopped=[];for(const [key,sess] of exportSessions)if(sess.job===id)stopped.push(cleanupExport(key));cancellationStops.set(id,Promise.all(stopped)); },
   url: (id) => `http://localhost:${PORT}/?exportJob=${encodeURIComponent(id)}`,
   // a transcription's headless browser keeps its profile, so the speech model is downloaded once
   keepProfile: (kind) => kind === "transcribe" ? path.join(ANALYSIS_DIR, "browser-profile") : null,
@@ -592,10 +617,19 @@ const server = http.createServer(async (req, res) => {
     sendJSON(res, 403, { error: "forbidden: request must come from this machine (bad Host or Origin header)" });
     return;
   }
+  // Compare the bound generation at the actual request boundary too: a service
+  // can restart between the MCP probe and its subsequent mutation. These are
+  // consistency fields, not a permission grant or a substitute for Host/Origin.
+  try { ManagedRuntime.verifyRequest(lease.owner,req.headers); }
+  catch(e) { sendJSON(res,e.code || 409,{error:e.message});return; }
   const url = new URL(req.url, "http://localhost");
   const p = decodeURIComponent(url.pathname);
   // never serve dotfiles/dot-directories (.git, .gitignore, …)
   if (p.split(/[\\/]/).some((seg) => seg.startsWith("."))) { res.writeHead(403); res.end(); return; }
+
+  if (p === "/api/desirecore/runtime-identity") { const proof = ManagedRuntime.identity(); sendJSON(res, proof ? 200 : 404, proof || {error:"not a platform managed generation"}); return; }
+  if (p === "/api/desirecore/instance") { sendJSON(res, 200, lease.owner); return; }
+  if (p.startsWith("/api/export/snapshot/")) { const file = ExportSnapshot.resolveFile(DATA_DIR,p); if (!file) {res.writeHead(404);res.end();} else serveFile(req,res,file); return; }
 
   /* API: project */
   if (p === "/api/project" && req.method === "GET") {
@@ -651,6 +685,12 @@ const server = http.createServer(async (req, res) => {
     try { a = JSON.parse((await readBody(req)).toString("utf8") || "{}"); }
     catch { sendJSON(res, 400, { error: "body must be JSON {action, …}" }); return; }
     try {
+      if(a.action === "beforeAgent") {
+        const current=ProjectStore.read(PROJECT_FILE);
+        if(typeof a.projectId!=="string" || a.projectId!==current.projectId || a.revision!==current.revision || projects.peekActive()!==current.projectId){sendJSON(res,409,{error:"project identity/revision changed before history snapshot"});return;}
+        const version=history.beforeAgent(String(a.name||"Before agent edits").slice(0,160));
+        sendJSON(res,200,{ok:true,projectId:current.projectId,revision:current.revision,version});return;
+      }
       const out = history.act(a);
       if (a.action && a.action !== "list" && a.action !== "diff") broadcast("versions", JSON.stringify({ project: out.project, action: a.action }));
       const isOpen = out.project === projects.peekActive();
@@ -706,15 +746,17 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 409, { error: "another project is open now", revision: cur.revision || 0, project: open });
         return;
       }
-      if ((data.revision || 0) <= (cur.revision || 0) && url.searchParams.get("force") !== "1") {
+      if ((data.revision || 0) <= (cur.revision || 0) && url.searchParams.get("force") !== "1" && req.headers["x-fablecut-mutation-id"] !== cur._lastMutation?.id) {
         sendJSON(res, 409, { error: "stale revision — project changed since it was read", revision: cur.revision || 0 });
         return;
       }
-      const tmp = PROJECT_FILE + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-      fs.renameSync(tmp, PROJECT_FILE);
-      sendJSON(res, 200, { ok: true, revision: data.revision });
-    } catch (e) { sendJSON(res, 400, { error: String(e) }); }
+      const base = req.headers["x-fablecut-base-revision"];
+      const expected = base === undefined ? data.revision - 1 : Number(base);
+      const mutationId=req.headers["x-fablecut-mutation-id"];
+      if(mutationId && !/^[a-zA-Z0-9-]{8,80}$/.test(mutationId))throw new Error("invalid mutation id");
+      const committed=ProjectStore.commit(PROJECT_FILE,data,expected,{projectId:meant || data.projectId || cur.projectId,mutationId});
+      sendJSON(res, 200, { ok: true, ...committed });
+    } catch (e) { sendJSON(res, e.code === 409 ? 409 : 400, { error: String(e), revision: e.revision }); }
     return;
   }
 
@@ -961,6 +1003,10 @@ const server = http.createServer(async (req, res) => {
   if (p === "/api/export/request" && req.method === "POST") {
     try {
       const opts = JSON.parse((await readBody(req)).toString("utf8") || "{}");
+      const admitted=ProjectStore.read(PROJECT_FILE);
+      if ((opts.projectId !== undefined && opts.projectId !== admitted.projectId) ||
+          (opts.revision !== undefined && opts.revision !== admitted.revision) || projects.peekActive() !== admitted.projectId)
+        throw Object.assign(new Error("project identity/revision changed before export; your draft is kept"), {code:409});
       if (!HAS_FFMPEG) { sendJSON(res, 400, { error: "ffmpeg not found on PATH — export needs it" }); return; }
       if (opts.profile) resolveProfile(String(opts.profile));
       if (opts.profile && (opts.preset || opts.delivery || opts.outputs)) { sendJSON(res, 400, { error: "pass a profile (raw ffmpeg args) or a preset / delivery spec / outputs, not both" }); return; }
@@ -969,8 +1015,7 @@ const server = http.createServer(async (req, res) => {
       if (opts.outputs) {
         let list = opts.outputs;
         if (list === true) {
-          let proj = {};
-          try { proj = JSON.parse(fs.readFileSync(PROJECT_FILE, "utf8").replace(/^\uFEFF/, "")); } catch {}
+          const proj = admitted;
           list = (Array.isArray(proj.outputs) ? proj.outputs : []).filter((o) => o && o.on !== false);
           if (!list.length) { sendJSON(res, 400, { error: "the project has no checked batch outputs — pass outputs:[{preset…}, …], or add some with setProject {outputs}" }); return; }
         }
@@ -991,13 +1036,23 @@ const server = http.createServer(async (req, res) => {
           { available: await deliveryEncoders(), presets: savedDeliveryPresets() });
         delivery = n.spec; notes = n.notes;
       }
-      let revision = null;
-      try { revision = JSON.parse(fs.readFileSync(PROJECT_FILE, "utf8").replace(/^\uFEFF/, "")).revision ?? null; } catch {}
-      const job = exportJobs.request({ range: opts.range, profile: opts.profile, delivery: deliveries ? null : delivery, deliveries, where: opts.where, revision });
+      const current=ProjectStore.read(PROJECT_FILE);
+      if(current.projectId!==admitted.projectId || current.revision!==admitted.revision || projects.peekActive()!==admitted.projectId)throw Object.assign(new Error("project changed during export admission; re-read and submit deliberately"),{code:409});
+      const snapshot = await ExportSnapshot.capture(DATA_DIR, admitted, {signal:snapshotCaptureAbort.signal});
+      let job;
+      try {
+        // Copying yields to the owner event loop. Admission must still name the
+        // same saved project after it completes; an edit/switch keeps its draft.
+        if (shuttingDown) throw Object.assign(new Error("editor service stopped during export admission"), {code:503});
+        const afterCapture=ProjectStore.read(PROJECT_FILE);
+        if(afterCapture.projectId!==admitted.projectId || afterCapture.revision!==admitted.revision || projects.peekActive()!==admitted.projectId)
+          throw Object.assign(new Error("project changed during export snapshot capture; re-read and submit deliberately"),{code:409});
+        job=exportJobs.request({ range: opts.range, profile: opts.profile, delivery: deliveries ? null : delivery, deliveries, where: "headless", revision: snapshot.receipt.projectRevision, snapshot });
+      } catch(e) { await ExportSnapshot.discard(DATA_DIR,snapshot.id); throw e; }
       sendJSON(res, 200, deliveries ? { ...job, delivery: `${deliveries.length} outputs from one render`, notes: outNotes }
         : delivery ? { ...job, delivery: Delivery.describe(delivery), notes } : job);
     } catch (e) {
-      const code = e.code === 409 || e.code === 400 ? e.code : /^Unknown encoding profile/.test(e.message || "") ? 400 : 500;
+      const code = [400,409,503].includes(e.code) ? e.code : /^Unknown encoding profile/.test(e.message || "") ? 400 : 500;
       sendJSON(res, code, { error: String(e.message || e) });
     }
     return;
@@ -1058,6 +1113,12 @@ const server = http.createServer(async (req, res) => {
     if (got === false) { sendJSON(res, 404, { error: "unknown export job endpoint" }); return; }
     if (got === undefined) { sendJSON(res, 409, { error: "job is not pending — another tab took it, or it ended" }); return; }
     if (got === null) { sendJSON(res, 404, { error: "no such export job" }); return; }
+    if(action === "/cancel") {
+      const stops=await cancellationStops.get(id);cancellationStops.delete(id);
+      const encoderConfirmed=!stops||stops.every(value=>value.encoderConfirmed),cleanupConfirmed=!stops||stops.every(value=>value.cleanupConfirmed);
+      if(!encoderConfirmed||!cleanupConfirmed){sendJSON(res,409,{...got,encoderTermination:encoderConfirmed?"confirmed":"unconfirmed",cleanupConfirmed});return;}
+      got={...got,encoderTermination:stops?.length?"confirmed":"not-started",cleanupConfirmed};
+    }
     sendJSON(res, 200, got);
     return;
   }
@@ -1114,7 +1175,12 @@ const server = http.createServer(async (req, res) => {
       const mode = opts.mode === "annexb" ? "annexb" : "jpeg";
       if (mode !== "annexb" && opts.profile) resolveProfile(opts.profile); // 400, not 500, on a bad id — even without ffmpeg
       if (!HAS_FFMPEG) { sendJSON(res, 400, { error: "ffmpeg not found on PATH" }); return; }
-      sendJSON(res, 200, await beginExport(opts.fps, opts.name, opts.profile, opts.hasAudio !== false, mode, opts));
+      const begun = await beginExport(opts.fps, opts.name, opts.profile, opts.hasAudio !== false, mode, opts);
+      if (opts.job) {
+        if (exportJobs.get(opts.job)?.status !== "running") {await cleanupExport(begun.id);sendJSON(res,409,{error:"original export job ended while encoder setup was pending"});return;}
+        exportSessions.get(begun.id).job = opts.job;
+      }
+      sendJSON(res, 200, begun);
     } catch (e) {
       // an unusable profile is the caller's problem, not a server fault
       const bad = /^Unknown encoding profile|was rejected by ffmpeg|ffmpeg rejected these settings|at most \d+ outputs|deliveries is empty|render each frame rate separately|export fps required|export width\/height required/.test(e.message || "");
@@ -1444,7 +1510,7 @@ setInterval(() => {
 }, 60_000).unref();
 
 server.listen(PORT, HOST, () => {
-  console.log(`\n  FableCut running →  http://localhost:${PORT}\n`);
+  console.log(`\n  视频剪辑 running →  http://localhost:${PORT}\n`);
   if (!["127.0.0.1", "localhost", "::1"].includes(HOST))
     console.log(`  ⚠ WARNING: HOST=${HOST} exposes the editor (and its file APIs) to the network.\n`);
   console.log(`  project file : ${PROJECT_FILE}`);
@@ -1463,11 +1529,12 @@ let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  snapshotCaptureAbort.abort();
   stopExportSweep();
-  for (const id of [...exportSessions.keys()]) cleanupExport(id);
+  const cleanup=Promise.all([...exportSessions.keys()].map(id=>cleanupExport(id)));
   exportJobs.shutdown();
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 2000).unref?.();
+  cleanup.finally(()=>{lease.release();server.close(()=>process.exit(0));});
+  setTimeout(()=>process.exit(0),5000).unref?.();
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

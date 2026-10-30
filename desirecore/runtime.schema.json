@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "视频剪辑 managed runtime environment",
+  "description": "Environment selected by the actual DesireCore execution owner; a declaration grants no permission. Native assets are prepared separately from source material.",
+  "type": "object",
+  "properties": {
+    "PORT": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,4}$",
+      "description": "Actual owner-selected loopback port, 1 through65535, encoded as an environment string; MCP and UI reuse this same service."
+    },
+    "APP_DATA_DIR": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Canonical installation data root provided by DesireCore; takes precedence over standalone FABLECUT_DATA_DIR."
+    },
+    "FABLECUT_MANAGED": {
+      "const": "1",
+      "description": "MCP must reuse an existing verified service and may not start a detached UI server."
+    },
+    "FABLECUT_EXPECTED_INSTANCE_ID": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Exact service instanceId from actual current /api/desirecore/instance response. Mandatory together for managed MCP; never inferred from product UUID."
+    },
+    "APP_DATA_ROOT": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Compatibility owner-injected data root when APP_DATA_DIR is absent."
+    },
+    "FABLECUT_DATA_DIR": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Standalone explicit owned data root; owner-injected APP_DATA_DIR/APP_DATA_ROOT take precedence."
+    },
+    "FABLECUT_CHROME": {
+      "type": "string",
+      "description": "Set by the launcher to the verified app-owned pinned browser executable; never a developer machine default."
+    },
+    "FABLECUT_EXPECTED_SCOPE_ID": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Exact scopeId from the actual current installed runtime binding. Mandatory together for managed MCP; never inferred from product UUID."
+    },
+    "FABLECUT_EXPECTED_RUNTIME_GENERATION": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Exact runtimeGeneration from the actual current installed runtime binding. Mandatory together for managed MCP; never inferred from product UUID."
+    },
+    "FABLECUT_EXPECTED_RELEASE_DIGEST": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Exact releaseDigest from the current installed material/runtime binding; this is not an archive SHA. Mandatory together for managed MCP; never inferred from product UUID."
+    }
+  },
+  "additionalProperties": true
+}

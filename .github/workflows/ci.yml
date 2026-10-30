@@ -1,136 +1,75 @@
 name: CI
-
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
-
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  test:
-    name: Tests (Node ${{ matrix.node }})
+  static:
+    name: Source and installed delivery
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run test:delivery
+      - run: npm run check:delivery
+      - name: Fixed app-authoring material matches reviewed files
+        run: node desirecore/release.js --check
+  regression:
+    name: Upstream and managed regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      # The retained upstream suite is a required gate. No failure masking or production fixtures.
+      - run: node --test --test-concurrency=2
+  runtime:
+    name: Native dependency fixture (${{ matrix.target }})
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
-        # The oldest version package.json supports, the current LTS, and latest.
-        node: ["18", "20", "22"]
+        include:
+          - os: macos-14
+            target: darwin-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: windows-latest
+            target: win32-x64
+          - os: ubuntu-24.04
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: ${{ matrix.node }}
-
-      # No install step on purpose: FableCut has no runtime dependencies and the
-      # suite uses only node:test. A missing `npm install` here is the feature.
-      - name: Run the test suite
-        run: npm test
-
-  check:
-    name: Syntax & sanity
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "20"
-
-      - name: Syntax-check JavaScript
+          node-version: '22'
+      - name: Install declared Linux headless system libraries
+        if: runner.os == 'Linux'
         run: |
-          for f in *.js; do
-            echo "checking $f"
-            node --check "$f"
-          done
-
-      - name: Validate JSON files
+          sudo apt-get update
+          sudo apt-get install -y unzip libasound2t64 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libgbm1 libnspr4 libnss3 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2
+      - name: Verify actual runner architecture and prepare pinned assets
+        shell: bash
+        env:
+          EXPECTED_RUNTIME_TARGET: ${{ matrix.target }}
+          APP_DATA_DIR: ${{ runner.temp }}/video-editing-runtime
         run: |
-          for f in package.json server.json manifest.json .mcp.json \
-                   .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
-            node -e "JSON.parse(require('fs').readFileSync('$f','utf8')); console.log('$f OK')"
-          done
-
-      - name: Check the data-dir split
-        # NB: under `node -e`, __dirname is "." — compare against process.cwd(),
-        # which is the repo root here and therefore paths.js's own __dirname.
-        run: |
-          # Default: everything beside the code, as it has always been.
-          node -e "
-            const p = require('./paths');
-            if (p.SPLIT) { console.error('expected SPLIT=false with no env'); process.exit(1); }
-            if (p.PROJECT_FILE !== require('path').join(process.cwd(), 'project.json')) {
-              console.error('default project path moved:', p.PROJECT_FILE); process.exit(1);
-            }
-            console.log('default layout OK');
-          "
-          # With FABLECUT_DATA_DIR: user data moves, app files do not.
-          FABLECUT_DATA_DIR=/tmp/fc-data node -e "
-            const path = require('path');
-            const fs = require('fs');
-            const p = require('./paths');
-            const want = path.resolve(process.env.FABLECUT_DATA_DIR);
-            if (!p.SPLIT) { console.error('expected SPLIT=true'); process.exit(1); }
-            for (const [k, v] of Object.entries({
-              PROJECT_FILE: 'project.json', MEDIA_DIR: 'media',
-              EXPORTS_DIR: 'exports', ANALYSIS_DIR: 'analysis', LIBRARY_DIR: 'library',
-            })) {
-              if (p[k] !== path.join(want, v)) {
-                console.error(k, 'did not move:', p[k]); process.exit(1);
-              }
-            }
-            if (p.APP_DIR !== process.cwd()) { console.error('APP_DIR moved:', p.APP_DIR); process.exit(1); }
-            p.ensureDirs();
-            if (!fs.existsSync(path.join(want, 'library/svg/sparkles.svg'))) {
-              console.error('library was not seeded'); process.exit(1);
-            }
-            console.log('split layout OK');
-          "
-
-  release:
-    # What npm, the MCP registry and Glama will see — checked here, before a
-    # release, instead of after one. See .github/scripts/release-check.js.
-    name: Release readiness
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-
-      - name: Versions, metadata, syntax, MCP tools vs manifest.json
-        run: node .github/scripts/release-check.js
-
-      - name: Pack and install the npm package, then check what it ships
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/pkg"
-          mkdir -p "$out/app"
-          npm pack --pack-destination "$out"
-          cd "$out/app"
-          npm init -y > /dev/null
-          npm install --no-audit --no-fund "$out"/fablecut-*.tgz
-          cd "$GITHUB_WORKSPACE"
-          node .github/scripts/release-check.js --installed "$out/app/node_modules/fablecut"
-
-      - name: Docs and playground are rebuilt from CLAUDE.md / the editor
-        run: |
-          node docs/docs/build.js
-          node docs/demo/sync.js
-          if [ -n "$(git status --porcelain -- docs/)" ]; then
-            git status --short -- docs/
-            echo "::error::docs/ is stale — run node docs/docs/build.js and node docs/demo/sync.js, then commit"
-            exit 1
-          fi
-
-      # Last: it rewrites package.json in the runner. The dry run refuses a
-      # version that is already on npm — true between releases — so it packs a
-      # throwaway prerelease of the same version instead.
-      - name: npm publish dry run
-        run: |
-          npm version "$(node -p "require('./package.json').version")-ci.${GITHUB_RUN_NUMBER}" --no-git-tag-version
-          npm publish --dry-run --tag ci
+          node -e 'if(process.platform+"-"+process.arch!==process.env.EXPECTED_RUNTIME_TARGET)process.exit(1)'
+          node desirecore/cli.mjs setup-runtime
+          node .github/scripts/runtime-smoke.js
+      # Source hashes, logs and native archives remain on this run's local worker; no Actions artifacts.

@@ -22,6 +22,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const ProjectStore = require("./project-store");
 
 /* Canvas presets offered next to the user's saved templates. */
 const BUILTIN_TEMPLATES = [
@@ -84,12 +85,13 @@ function createProjects({ dataDir, projectFile, libraryDir }) {
   function activeId() {
     let id = null;
     try { id = readJSON(INDEX).active; } catch { }
-    if (exists(id)) return id;
+    if (exists(id)) {const doc=readRoot();if(doc.projectId!==id)ProjectStore.atomic(projectFile,{...doc,projectId:id});return id;}
     id = newId();
     let created = new Date().toISOString();
     try { created = fs.statSync(projectFile).mtime.toISOString(); } catch { }
     writeMeta(id, { id, created, opened: new Date().toISOString(), archived: false, notes: "", tags: [] });
     writeJSON(INDEX, { active: id });
+    ProjectStore.atomic(projectFile,{...readRoot(),projectId:id});
     return id;
   }
   /* The open project's id without creating anything (null before the first dashboard use). */
@@ -105,7 +107,7 @@ function createProjects({ dataDir, projectFile, libraryDir }) {
     if (id !== activeId()) { writeJSON(docFile(id), doc); return; }
     // the open project: bump the revision like any other save, so tabs reload
     const cur = readRoot();
-    writeJSON(projectFile, { ...doc, revision: Math.max(cur.revision || 0, doc.revision || 0) + 1 });
+    ProjectStore.commit(projectFile, { ...doc, projectId:id, revision: (cur.revision || 0) + 1 }, cur.revision||0, {projectId:id});
   };
 
   function summary(id, active) {
@@ -148,12 +150,13 @@ function createProjects({ dataDir, projectFile, libraryDir }) {
     catch (e) { throw new Error(`project ${id} can't be read (${e.message})`); }
     writeJSON(docFile(cur), root);
     next.revision = Math.max(root.revision || 0, next.revision || 0) + 1;
+    next.projectId = id;
     try {
-      writeJSON(projectFile, next);
+      ProjectStore.atomic(projectFile, next);
       writeJSON(INDEX, { active: id });
     } catch (e) {
       // ./project.json and index.json must agree: put the open project back
-      try { writeJSON(projectFile, { ...root, revision: next.revision + 1 }); } catch { }
+      try { ProjectStore.atomic(projectFile, { ...root, revision: next.revision + 1 }); } catch { }
       throw new Error(`switching to ${id} failed (${e.message}) — ${cur} is still open`);
     }
     const meta = readMeta(id) || { id };
@@ -245,7 +248,7 @@ function createProjects({ dataDir, projectFile, libraryDir }) {
   /* A project file from elsewhere (an old backup, another machine). */
   function importDoc(doc, { name, open: andOpen = false } = {}) {
     if (!doc || typeof doc !== "object" || !Array.isArray(doc.clips) || !Array.isArray(doc.media))
-      throw new Error("not a FableCut project (it needs clips and media arrays)");
+      throw new Error("无效的视频工程：需要 clips 和 media 数组");
     const id = add(structuredClone(doc), { name: cleanName(name) || doc.name });
     return andOpen ? open(id) : { id, project: summary(id, activeId()) };
   }

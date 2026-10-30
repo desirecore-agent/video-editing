@@ -7,11 +7,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { makeDataDir, readProject, writeProject, seedProject, startMcp } = require("./helpers");
+const { makeDataDir, readProject, writeProject, seedProject, startMcp, startServer } = require("./helpers");
 
 const boot = async (t, project) => {
   const dir = makeDataDir(t, project);
-  const mcp = startMcp(t, dir);
+  const service = await startServer(t, dir);
+  const mcp = startMcp(t, dir, {PORT:String(service.port), FABLECUT_NO_AUTOSTART:"1"});
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   return { dir, mcp };
 };
@@ -19,7 +20,7 @@ const boot = async (t, project) => {
 test("fablecut_docs returns the manual, and can slice it by section", async (t) => {
   const { mcp } = await boot(t);
   const full = await mcp.callTool("fablecut_docs");
-  assert.match(full.text, /# FableCut/);
+  assert.match(full.text, /# 视频剪辑/);
 
   const section = await mcp.callTool("fablecut_docs", { section: "schema" });
   assert.ok(section.text.length < full.text.length, "a section must be smaller than the manual");
@@ -93,6 +94,7 @@ test("updateClip merges into props, and null deletes a key", async (t) => {
 
 test("patch ops reject edits that would corrupt the timeline", async (t) => {
   const { dir, mcp } = await boot(t);
+  const before = readProject(dir); // includes the service-owned stable projectId
   const cases = [
     [{ op: "addClip", clip: { id: "c_x", mediaId: "m_nope", kind: "video", track: "V1", start: 0, duration: 1 } },
       /unknown mediaId/i],
@@ -115,7 +117,7 @@ test("patch ops reject edits that would corrupt the timeline", async (t) => {
   assert.ok(empty.isError, "an empty op list is a mistake, not a no-op");
 
   // Nothing above may have touched the document.
-  assert.deepEqual(readProject(dir), seedProject(), "rejected patches must not write");
+  assert.deepEqual(readProject(dir), before, "rejected patches must not write");
 });
 
 test("patch refuses to change locked clips and tracks unless forced", async (t) => {
@@ -133,6 +135,7 @@ test("patch refuses to change locked clips and tracks unless forced", async (t) 
     ],
   });
   const { dir, mcp } = await boot(t, project);
+  const before = readProject(dir);
   const refused = [
     [{ op: "updateClip", id: "c_a", set: { start: 2 } }, /clip c_a is locked/],
     [{ op: "removeClip", id: "c_a" }, /clip c_a is locked/],
@@ -146,7 +149,7 @@ test("patch refuses to change locked clips and tracks unless forced", async (t) 
     assert.match(text, expected);
     assert.match(text, /force:true/, "the error must say how to override");
   }
-  assert.deepEqual(readProject(dir), project, "refused patches must not write");
+  assert.deepEqual(readProject(dir), before, "refused patches must not write");
 
   // Moving an unlocked clip onto a locked track is refused too.
   await mcp.callTool("fablecut_patch_project", { ops: [{ op: "setProject", set: { lockedTracks: ["A3", "V2"] } }] });

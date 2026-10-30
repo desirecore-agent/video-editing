@@ -18,14 +18,14 @@ const post = (base, body) => fetch(base + "/api/projects", {
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
 });
 
-test("the existing project.json becomes the first project, without being rewritten", (t) => {
+test("the existing project.json receives a stable identity without changing its content or revision", (t) => {
   const { dir, P } = make(t);
   assert.equal(P.peekActive(), null, "nothing exists before the first use");
   const before = fs.readFileSync(path.join(dir, "project.json"), "utf8");
   const id = P.activeId();
   assert.match(id, /^p_[a-z0-9]+$/);
   assert.equal(P.peekActive(), id);
-  assert.equal(fs.readFileSync(path.join(dir, "project.json"), "utf8"), before);
+  const stamped=readProject(dir);const prior=JSON.parse(before);assert.equal(stamped.projectId,id);delete stamped.projectId;assert.deepEqual(stamped,prior);
   const { projects } = P.list();
   assert.equal(projects.length, 1);
   assert.equal(projects[0].name, "Test Project");
@@ -114,7 +114,7 @@ test("import takes a project file from elsewhere; a non-project is refused", (t)
   P.activeId();
   const out = P.importDoc(seedProject({ name: "Old backup", revision: 300 }));
   assert.equal(out.project.name, "Old backup");
-  assert.throws(() => P.importDoc({ hello: 1 }), /not a FableCut project/);
+  assert.throws(() => P.importDoc({ hello: 1 }), /无效的视频工程.*clips.*media/);
 });
 
 test("a project that can't be read is never switched over", (t) => {
@@ -148,7 +148,7 @@ test("REST: list, create and open; GET /api/project names the open project", asy
 
   let res = await fetch(base + "/api/project");
   assert.equal(res.headers.get("X-FableCut-Projects"), "1");
-  assert.equal(res.headers.get("X-FableCut-Project"), null, "no id before projects are used");
+  assert.match(res.headers.get("X-FableCut-Project"), /^p_/, "single writer stamps project identity before accepting requests");
 
   const list = await (await fetch(base + "/api/projects")).json();
   assert.equal(list.projects.length, 1);
@@ -182,7 +182,7 @@ test("REST: list, create and open; GET /api/project names the open project", asy
   assert.equal(readProject(dir).name, "Reel");
   res = await fetch(base + "/api/project", {
     method: "PUT", headers: { "Content-Type": "application/json", "X-FableCut-Project": made.id },
-    body: JSON.stringify({ ...readProject(dir), revision: 999 }),
+    body: JSON.stringify({ ...readProject(dir), revision: readProject(dir).revision + 1 }),
   });
   assert.equal(res.status, 200, "a save for the open project goes through");
 

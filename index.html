@@ -3,18 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FableCut - Video Editor</title>
+<title>视频剪辑 · Video Editing</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png">
-<meta name="theme-color" content="#0e0e10">
+<meta name="theme-color" content="#fdfdfc">
+<link rel="stylesheet" href="desirecore-theme.css">
 <link rel="stylesheet" href="style.css">
+<script src="desirecore-theme.js"></script>
 </head>
 <body>
 <div class="app" id="app">
 
   <!-- ══════════ TOP BAR ══════════ -->
   <header class="topbar">
-    <div class="logo"><span class="logo-mark">▶</span> Fable<b>Cut</b></div>
+    <div class="logo" aria-label="Video Editing"><span class="logo-mark" aria-hidden="true">▶</span> <span lang="zh-CN">视频剪辑</span></div>
     <button type="button" class="btn tiny hidden" id="btnProjectsDash" title="Projects (Ctrl/Cmd+O): open, create, duplicate, archive">Projects</button>
     <div class="topbar-center" id="projectName">Untitled Project</div>
     <div class="topbar-right">
@@ -40,11 +42,20 @@
     </div>
   </header>
 
+  <!-- Native anchors switch the visible panel in a narrow window; the same
+       editor objects, drafts and scroll positions stay mounted. -->
+  <nav class="workspace-nav" aria-label="Editor panels">
+    <a href="#monitorPanel">Preview</a>
+    <a href="#mediaBinPanel" class="nav-media">Media</a>
+    <a href="#scopesPanel" class="nav-scopes">Scopes</a>
+    <a href="#inspectorPanel">Inspector</a>
+  </nav>
+
   <!-- ══════════ UPPER PANELS ══════════ -->
   <div class="upper">
 
     <!-- Media bin -->
-    <aside class="panel bin">
+    <aside class="panel bin" id="mediaBinPanel" aria-label="Media">
       <div class="panel-head">
         <span class="panel-head-actions bin-actions">
           <button type="button" class="btn tiny" id="btnTitle" title="Add a title card at the playhead">+ Title</button>
@@ -191,7 +202,7 @@
     </section>
 
     <!-- Inspector -->
-    <aside class="panel inspector">
+    <aside class="panel inspector" id="inspectorPanel" aria-label="Inspector">
       <div class="bin-tabs side-tabs" id="sideTabs" role="tablist">
         <button type="button" data-side="inspector" class="on" title="Selected clip: transform, effects &amp; audio">Inspector</button>
         <button type="button" data-side="mixer" title="Track and master faders, pan, mute / solo, meters">Mixer</button>

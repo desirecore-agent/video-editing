@@ -1,10 +1,15 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   FableCut — a browser-based non-linear video editor
+   视频剪辑 — a browser-based non-linear video editor
    Works standalone (open index.html) or connected to server.js, which adds
    persistent projects (project.json), a media library folder, and a REST API
-   so external tools (e.g. Claude Code) can edit the timeline programmatically.
+   so external MCP clients can edit the timeline programmatically.
    ═══════════════════════════════════════════════════════════════════════════ */
 "use strict";
+
+/* Editor chrome only. Compositor props and film colours never read this palette. */
+function uiColor(key, fallback) {
+  return globalThis.DesireCoreTheme?.snapshot?.()?.palette?.[key] || fallback;
+}
 
 /* ── Constants ─────────────────────────────────────────────────────────── */
 const VIDEO_TRACK_COLORS = ["#4f8cff", "#7b6cff", "#ffd166", "#ff6b9d", "#45d9c2", "#f4a261", "#e76f51", "#a8dadc"];
@@ -1195,9 +1200,19 @@ function isTypingTarget(el) {
 }
 
 /* ═══════════════════════ SERVER SYNC (optional) ═══════════════════════ */
+// Frozen headless jobs use runtime.frozenExportInput; the live editor is independent.
+async function projectInputUrl() {
+  const job = new URLSearchParams(location.search).get("exportJob");
+  if (!job) return "/api/project";
+  const r = await fetch("/api/export/job/ticket?id="+encodeURIComponent(job));
+  if (!r.ok) throw new Error("original export job is unavailable");
+  const ticket=await r.json();
+  if (ticket.snapshot?.projectUrl) {runtime.frozenExportInput=true;return ticket.snapshot.projectUrl;}
+  return "/api/project";
+}
 async function connectServer() {
   try {
-    const res = await fetch("/api/project", { cache: "no-store" });
+    const res = await fetch(await projectInputUrl(), { cache: "no-store" });
     if (!res.ok) throw 0;
     const data = await res.json();
     applyProject(data);
@@ -1478,6 +1493,7 @@ function applyProject(data, opts = {}) {
     return;
   }
   if (!state.compCtx) noteOpenSequence(data);
+  runtime.confirmedRevision = data.revision || 0;
   const wa = normalizeWorkArea(data.inPoint, data.outPoint);
   Object.assign(project, {
     name: data.name || "Untitled Project",
@@ -1581,23 +1597,30 @@ function scheduleSave() {
   clearTimeout(runtime.saveTimer);
   runtime.saveTimer = setTimeout(() => { runtime.saveTimer = null; runtime.saving = saveNow(); }, 400);
 }
+function saveContent() { const doc=projectJSON();delete doc.revision;return JSON.stringify(doc); }
 async function saveNow() {
-  project.revision++;
-  const body = JSON.stringify(projectJSON(), null, 2);
-  try {
-    const headers = { "Content-Type": "application/json" };
-    if (runtime.projectId) headers["X-FableCut-Project"] = runtime.projectId;   // the project this edit belongs to
-    const res = await fetch("/api/project", { method: "PUT", headers, body });
-    if (res.status === 409) {
-      // an external tool saved a newer revision while this change was pending
-      const loaded = await syncFromServer(true);
-      toast("Project was updated externally — your last change may need redoing.");
-      runtime.saveFailed = loaded !== true;
-      return loaded === true;   // the newer document on disk is now what this tab shows
+  if (runtime.frozenExportInput) return true;
+  if (runtime.saveAttempt) return runtime.saveAttempt;
+  runtime.saveAttempt=(async () => {
+    if (!runtime.pendingSubmit) {
+      const base=runtime.confirmedRevision ?? project.revision;
+      runtime.pendingSubmit={id:crypto.randomUUID(),base,projectId:runtime.projectId,content:saveContent(),body:JSON.stringify({...projectJSON(),revision:base+1})};
     }
-    runtime.saveFailed = !res.ok;
-    return res.ok;
-  } catch { runtime.saveFailed = true; return false; }
+    const pending=runtime.pendingSubmit;
+    try {
+      const headers={"Content-Type":"application/json","X-FableCut-Base-Revision":String(pending.base),"X-FableCut-Mutation-Id":pending.id};
+      if(pending.projectId)headers["X-FableCut-Project"]=pending.projectId;
+      const res=await fetch("/api/project",{method:"PUT",headers,body:pending.body});
+      if(!res.ok){runtime.saveFailed=true;if(res.status===409){runtime.pendingSync=true;toast("Save conflict — your draft is kept in this tab. Copy or save it before reloading.");}return false;}
+      const receipt=await res.json();
+      runtime.confirmedRevision=receipt.revision;project.revision=receipt.revision;
+      runtime.pendingSubmit=null;runtime.saveFailed=false;
+      if(saveContent()!==pending.content)scheduleSave();
+      else if(runtime.pendingSync)syncFromServer();
+      return true;
+    } catch {runtime.saveFailed=true;return false;}
+  })().finally(()=>{runtime.saveAttempt=null;});
+  return runtime.saveAttempt;
 }
 /** Write a pending edit now (and wait for one in flight), e.g. before switching projects.
  *  False when that save did not land. */
@@ -1729,6 +1752,8 @@ function listenSSE() {
    during gestures/exports and re-run when they end (runtime.pendingSync). */
 /** True when the server's document was loaded (a later caller may rely on it). */
 async function syncFromServer(force) {
+  if (runtime.frozenExportInput) return false;
+  if (runtime.pendingSubmit || runtime.saveFailed) {runtime.pendingSync=true;return false;}
   if (state.gesture || state.exporting) { runtime.pendingSync = true; return false; }
   runtime.pendingSync = false;
   if (state.binTab === "templates") fetchSaved("templates").then(() => { if (state.binTab === "templates") renderTemplatesTab(); });
@@ -1742,6 +1767,7 @@ async function syncFromServer(force) {
     if (!res.ok) return;
     const data = await res.json();
     if (seq !== runtime.syncSeq) return;   // a newer reload is on its way: this answer may be older than it
+    if (runtime.frozenExportInput || runtime.pendingSubmit || runtime.saveFailed) { runtime.pendingSync = true; return false; }
     if (!data || !Array.isArray(data.clips)) return;
     // another project was opened (the dashboard, another tab, an agent)
     const pid = res.headers.get("X-FableCut-Project");
@@ -2539,11 +2565,11 @@ function showMediaMenu(x, y, m) {
   item("Open in Source", () => loadSourceFromMedia(m));
   item(`Find timeline instances (${uses})`, () => showMediaInstances(m, x, y), uses ? null : "Not used on the timeline");
   item("Media info…", () => showMediaInfo(m, x, y));
-  item(isMediaOffline(m.id) ? "Relink…" : "Relink to another copy…", () => openRelinkDialog([m]), state.connected ? null : "Needs the FableCut server");
-  item("Replace file…", () => replaceMediaFile(m), state.connected ? null : "Needs the FableCut server");
+  item(isMediaOffline(m.id) ? "Relink…" : "Relink to another copy…", () => openRelinkDialog([m]), state.connected ? null : "请先连接视频剪辑服务");
+  item("Replace file…", () => replaceMediaFile(m), state.connected ? null : "请先连接视频剪辑服务");
   if (m.kind === "video") {
     const ps = proxyStatus.get(m.id);
-    const why = !state.connected ? "Needs the FableCut server" : !state.ffmpeg ? "Needs ffmpeg on the server's PATH" : isMediaOffline(m.id) ? "The file is offline" : null;
+    const why = !state.connected ? "请先连接视频剪辑服务" : !state.ffmpeg ? "服务尚未准备 FFmpeg" : isMediaOffline(m.id) ? "The file is offline" : null;
     if (ps && (ps.state === "ready" || ps.state === "running" || ps.state === "queued")) item(ps.state === "ready" ? "Delete proxy" : "Stop making the proxy", () => deleteProxies([m]));
     else {
       item("Create proxy (540p)", () => createProxies([m], 540), why);
@@ -3916,7 +3942,7 @@ function toggleClipsLocked() {
   const trackLocked = !lock && group.some((c) => isTrackLocked(c.track));
   toast(lock ? "Clip locked" : trackLocked ? "Clip unlocked — its track is still locked" : "Clip unlocked");
 }
-/** Why these clips can't be linked, or null when they can. Links in FableCut
+/** Why these clips can't be linked, or null when they can. Links in 视频剪辑
  *  mean identical timing, so only aligned clips of one file qualify: one
  *  video plus its audio (e.g. after unlink → nudge → nudge back). */
 function linkRefusal(clips) {
@@ -4360,7 +4386,7 @@ function replaceClipMedia(clip, media) {
     releaseClipEl(c.id);
     if (media.duration == null) continue;
     const speed = c.props?.speed || 1;
-    // in + duration×speed ≤ media.duration (see CLAUDE.md props reference)
+    // in + duration×speed ≤ media.duration (see docs/editor-guide.md props reference)
     const maxIn = Math.max(0, media.duration - 0.001);
     if (c.in > maxIn) { c.in = maxIn; trimmed = true; }
     const maxDur = Math.max(0.05, (media.duration - c.in) / speed);
@@ -5372,7 +5398,7 @@ function drawClipWave(cv, c, trackH) {
   const h = trackH - 8;
   cv.width = w; cv.height = h;
   const g = cv.getContext("2d");
-  g.fillStyle = "#c9f29b";
+  g.fillStyle = uiColor("waveform", "#c9f29b");
   g.globalAlpha = 0.75;
   const mid = h / 2;
   for (let x = 0; x < w; x++) {
@@ -5414,7 +5440,7 @@ function drawRuler() {
       sl: els.timelineScroll.scrollLeft, pps: state.pps,
       markers: project.markers, markerColors: MARKER_COLORS,
       inPoint: project.inPoint, outPoint: project.outPoint,
-      time: state.time, fps: projectFps(),
+      time: state.time, fps: projectFps(), palette: globalThis.DesireCoreTheme?.snapshot?.()?.palette || null,
     });
     return;
   }
@@ -5434,9 +5460,9 @@ function drawRulerMainThread(w, h, dpr) {
   const minor = step / 5;
   const i0 = Math.max(0, Math.floor(sl / pps / minor));
   // ticks + time labels first so IN/OUT can difference-blend over them
-  g.strokeStyle = "#4a4a55";
-  g.fillStyle = "#9a9aa6";
-  g.font = "10px Consolas, monospace";
+  g.strokeStyle = uiColor("rulerTick", "#4a4a55");
+  g.fillStyle = uiColor("rulerText", "#9a9aa6");
+  g.font = `10px ${uiColor("fontMono", "Consolas, monospace")}`;
   g.beginPath();
   for (let i = i0; i * minor * pps < sl + w; i++) {
     const t = i * minor;
@@ -5450,7 +5476,7 @@ function drawRulerMainThread(w, h, dpr) {
   const inn = project.inPoint, out = project.outPoint;
   if (inn != null && out != null && out > inn) {
     const x0 = inn * pps - sl, x1 = out * pps - sl;
-    g.fillStyle = "#00000055";
+    g.fillStyle = uiColor("outsideRange", "#00000055");
     if (x0 > 0) g.fillRect(0, 0, Math.min(w, x0), h);
     if (x1 < w) g.fillRect(Math.max(0, x1), 0, w - Math.max(0, x1), h);
   }
@@ -5474,7 +5500,7 @@ function drawRulerMainThread(w, h, dpr) {
         g.beginPath(); g.rect(x + 6, h - 12, room, 12); g.clip();
         g.font = "9px system-ui, sans-serif";
         const tw = g.measureText(mk.label).width;
-        g.fillStyle = "#101014cc";
+        g.fillStyle = uiColor("markerLabelBackground", "#101014cc");
         g.fillRect(x + 6, h - 11, Math.min(tw + 6, room), 10);
         g.fillStyle = col;
         g.fillText(mk.label, x + 9, h - 3);
@@ -5489,7 +5515,7 @@ function drawRulerMainThread(w, h, dpr) {
   if (inn != null) {
     const x = inn * pps - sl;
     if (x >= -10 && x <= w + 10) {
-      g.fillStyle = "#5eead4";
+      g.fillStyle = uiColor("rangeIn", "#5eead4");
       g.beginPath();
       g.moveTo(x, top); g.lineTo(x, bot); g.lineTo(x + 8, mid);
       g.closePath(); g.fill();
@@ -5498,7 +5524,7 @@ function drawRulerMainThread(w, h, dpr) {
   if (out != null) {
     const x = out * pps - sl;
     if (x >= -10 && x <= w + 10) {
-      g.fillStyle = "#fb923c";
+      g.fillStyle = uiColor("rangeOut", "#fb923c");
       g.beginPath();
       g.moveTo(x, top); g.lineTo(x, bot); g.lineTo(x - 8, mid);
       g.closePath(); g.fill();
@@ -5508,7 +5534,7 @@ function drawRulerMainThread(w, h, dpr) {
   // playhead marker on ruler
   const px = state.time * pps - sl;
   if (px >= -8 && px <= w + 8) {
-    g.fillStyle = "#ff4d6a";
+    g.fillStyle = uiColor("playhead", "#ff4d6a");
     g.beginPath();
     g.moveTo(px - 6, 12); g.lineTo(px + 6, 12); g.lineTo(px + 6, 19); g.lineTo(px, 25); g.lineTo(px - 6, 19);
     g.closePath(); g.fill();
@@ -7321,14 +7347,14 @@ function drawKfGraph(cv, c, key) {
   const xAt = (t) => 3 + ((t - t0) / span) * (W - 6);
 
   // mid / zero guide
-  g.strokeStyle = "#ffffff10";
+  g.strokeStyle = uiColor("grid", "#ffffff10");
   g.lineWidth = 1;
   g.beginPath();
   const y0 = yAt(0);
   if (y0 > 4 && y0 < H - 4) { g.moveTo(3, y0); g.lineTo(W - 3, y0); g.stroke(); }
 
   // interpolated curve (only the zoomed window)
-  g.strokeStyle = "#7b6cff";
+  g.strokeStyle = uiColor("curve", "#7b6cff");
   g.lineWidth = 1.5;
   g.beginPath();
   const steps = Math.max(24, Math.floor(W));
@@ -7343,7 +7369,7 @@ function drawKfGraph(cv, c, key) {
   // keyframe diamonds
   const kfs = c.keyframes?.[key];
   if (Array.isArray(kfs)) {
-    g.fillStyle = "#ffd166";
+    g.fillStyle = uiColor("keyframe", "#ffd166");
     for (const kf of kfs) {
       const x = xAt(kf.t), y = yAt(kf.v);
       g.beginPath();
@@ -7356,13 +7382,13 @@ function drawKfGraph(cv, c, key) {
   const lt = state.time - c.start;
   if (lt >= t0 - 1e-6 && lt <= t1 + 1e-6) {
     const px = xAt(clamp(lt, t0, t1));
-    g.strokeStyle = "#ff4d6a";
+    g.strokeStyle = uiColor("playhead", "#ff4d6a");
     g.lineWidth = 1;
     g.beginPath();
     g.moveTo(px, 1); g.lineTo(px, H - 1);
     g.stroke();
     const cur = kfChannel(c, key, clamp(lt, t0, t1), fallback);
-    g.fillStyle = "#ff4d6a";
+    g.fillStyle = uiColor("playhead", "#ff4d6a");
     g.beginPath();
     g.arc(px, yAt(cur), 2.5, 0, Math.PI * 2);
     g.fill();
@@ -8017,7 +8043,7 @@ function drawSourceFrame() {
   ctx2d.fillStyle = "#000"; ctx2d.fillRect(0, 0, W, H);
   const m = sourceMedia();
   if (!m) {
-    ctx2d.fillStyle = "#8a8698";
+    ctx2d.fillStyle = uiColor("overlayMuted", "#8a8698");
     ctx2d.font = `600 ${Math.round(H * 0.045)}px "Segoe UI", sans-serif`;
     ctx2d.textAlign = "center";
     ctx2d.textBaseline = "middle";
@@ -8039,14 +8065,14 @@ function drawSourceFrame() {
     const img = getSourceSvgImage(m, t);
     if (img) drawSourceContain(ctx2d, img, img.naturalWidth || m.width || W, img.naturalHeight || m.height || H, W, H);
   } else if (m.kind === "audio") {
-    ctx2d.fillStyle = "#1a1a22";
+    ctx2d.fillStyle = uiColor("overlayBackground", "#1a1a22");
     ctx2d.fillRect(0, 0, W, H);
-    ctx2d.fillStyle = "#cfc8ff";
+    ctx2d.fillStyle = uiColor("overlayText", "#cfc8ff");
     ctx2d.font = `700 ${Math.round(H * 0.08)}px "Segoe UI", sans-serif`;
     ctx2d.textAlign = "center";
     ctx2d.textBaseline = "middle";
     ctx2d.fillText("♪", W / 2, H * 0.42);
-    ctx2d.fillStyle = "#e8e6f0";
+    ctx2d.fillStyle = uiColor("overlayText", "#e8e6f0");
     ctx2d.font = `600 ${Math.round(H * 0.04)}px "Segoe UI", sans-serif`;
     ctx2d.fillText(m.name || "Audio", W / 2, H * 0.55);
     // Simple progress bar
@@ -8211,7 +8237,7 @@ function loadFxWorklet(ctx) {
   if (!p) {
     p = ctx.audioWorklet.addModule("fx-worklet.js?v=2")
       .then(() => { fxWorkletReady.add(ctx); return true; })
-      .catch((err) => { console.warn("[FableCut] fx worklet unavailable:", err); return false; });
+      .catch((err) => { console.warn("[视频剪辑] fx worklet unavailable:", err); return false; });
     fxWorklets.set(ctx, p);
   }
   return p;
@@ -10022,7 +10048,7 @@ function renderBusFx(root, bus) {
 }
 function paintMixerBar(ctx, x, w, h, db, holdDb) {
   const frac = (v) => clamp((v - METER_DB_MIN) / (METER_DB_MAX - METER_DB_MIN), 0, 1);
-  ctx.fillStyle = "#2a2a33";
+  ctx.fillStyle = uiColor("meterOff", "#2a2a33");
   ctx.fillRect(x, 0, w, h);
   const f = frac(db);
   if (f > 0) {
@@ -10097,7 +10123,7 @@ function paintMeterSegs(entry, lit, hold) {
       ctx.fillStyle = u < 0.6 ? "#3dd68c" : u < 0.85 ? "#f0c14a" : "#e5484d";
       ctx.fill();
     } else {
-      ctx.fillStyle = "#2a2a33";
+      ctx.fillStyle = uiColor("meterOff", "#2a2a33");
       ctx.fill();
       ctx.strokeStyle = "#0006"; ctx.lineWidth = 1;
       ctx.stroke();
@@ -10321,7 +10347,7 @@ async function installMeterWorklet(audio) {
     resetMasterMeterBallistics();
     buildMeterDOM();
   } catch (err) {
-    console.warn("[FableCut] meter worklet unavailable:", err);
+    console.warn("[视频剪辑] meter worklet unavailable:", err);
     if (meter) {
       try { meter.port.onmessage = null; } catch {}
       try { meter.disconnect(); } catch {}
@@ -11296,7 +11322,7 @@ function initPixGL() {
     Object.assign(pixGL, { gl, canvas: cv, loc, stage, stageCtx: stage.getContext("2d") });
     return gl;
   } catch (err) {
-    console.warn("[FableCut] WebGL2 pixel pass unavailable, using the CPU path:", err && err.message);
+    console.warn("[视频剪辑] WebGL2 pixel pass unavailable, using the CPU path:", err && err.message);
     return null;
   }
 }
@@ -11353,7 +11379,7 @@ function pixelPassGL(c, p, src, sx, sy, sw, sh, w, h, dw) {
     return out;
   } catch (err) {
     if (err && err.name === "SecurityError") throw err;   // tainted source: same as getImageData on the CPU path
-    console.warn("[FableCut] pixel pass failed, using the CPU path:", err && err.message);
+    console.warn("[视频剪辑] pixel pass failed, using the CPU path:", err && err.message);
     pixGL.gl = null;
     return null;
   }
@@ -11518,7 +11544,7 @@ function initGradeGL() {
     Object.assign(gradeGL, { gl, canvas: cv, loc, tex, curveTex, hueTex, curveRef: null, hueRef: null, fbos: [], floatFbo });
     return gl;
   } catch (err) {
-    console.warn("[FableCut] WebGL2 grade unavailable, using the CPU path:", err && err.message);
+    console.warn("[视频剪辑] WebGL2 grade unavailable, using the CPU path:", err && err.message);
     return null;
   }
 }
@@ -11602,7 +11628,7 @@ function gradeSource(src, sx, sy, sw, sh, srcW, srcH, dw, dh, grade, matte = -1)
     } catch (err) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       if (err && err.name === "SecurityError") return null; // this source only — keep the GPU path
-      console.warn("[FableCut] grade pass failed, using the CPU path:", err && err.message);
+      console.warn("[视频剪辑] grade pass failed, using the CPU path:", err && err.message);
       gradeGL.gl = null;
     }
   }
@@ -12477,7 +12503,7 @@ function drawSelectionOverlay(W, H, t) {
   const hd = overlayHandles(b, W, H), hs = hd.hs;
   ctx2d.setTransform(1, 0, 0, 1, 0, 0);
   ctx2d.save();
-  ctx2d.lineWidth = lw; ctx2d.strokeStyle = "#4f8cff";
+  ctx2d.lineWidth = lw; ctx2d.strokeStyle = uiColor("selection", "#4f8cff");
   ctx2d.save();
   ctx2d.translate(b.cx, b.cy); ctx2d.rotate(b.rot);
   ctx2d.setLineDash([lw * 4, lw * 3]);
@@ -12485,15 +12511,15 @@ function drawSelectionOverlay(W, H, t) {
   ctx2d.restore();
   ctx2d.setLineDash([]);
   ctx2d.beginPath(); ctx2d.moveTo(hd.topMid.x, hd.topMid.y); ctx2d.lineTo(hd.rotate.x, hd.rotate.y); ctx2d.stroke();
-  ctx2d.fillStyle = "#ffffff";
+  ctx2d.fillStyle = uiColor("handle", "#ffffff");
   for (const h of hd.corners) {
     ctx2d.beginPath(); ctx2d.rect(h.x - hs, h.y - hs, hs * 2, hs * 2); ctx2d.fill(); ctx2d.stroke();
   }
   ctx2d.beginPath(); ctx2d.arc(hd.rotate.x, hd.rotate.y, hs * 1.1, 0, Math.PI * 2);
-  ctx2d.fillStyle = "#ffce5c"; ctx2d.fill(); ctx2d.stroke();
+  ctx2d.fillStyle = uiColor("focus", "#ffce5c"); ctx2d.fill(); ctx2d.stroke();
   // the anchor point: what x / y place and what rotation and scale turn around
   const ap = anchorScreenPt(c, ep, W, H, t), ar = hs * (runtime.anchorTool ? 1.3 : 0.9);
-  ctx2d.lineWidth = lw; ctx2d.strokeStyle = runtime.anchorTool ? "#ffce5c" : "#ffffff";
+  ctx2d.lineWidth = lw; ctx2d.strokeStyle = runtime.anchorTool ? uiColor("focus", "#ffce5c") : uiColor("handle", "#ffffff");
   ctx2d.beginPath(); ctx2d.arc(ap.x, ap.y, ar, 0, Math.PI * 2);
   ctx2d.moveTo(ap.x - ar * 1.7, ap.y); ctx2d.lineTo(ap.x + ar * 1.7, ap.y);
   ctx2d.moveTo(ap.x, ap.y - ar * 1.7); ctx2d.lineTo(ap.x, ap.y + ar * 1.7); ctx2d.stroke();
@@ -16467,7 +16493,7 @@ async function openExportSetup() {
   const wcOk = fastOk && state.webCodecs && !ef;
   const recOk = !ef && !!(window.MediaRecorder && pickMime());
   els.engineFast.disabled = !fastOk;
-  els.engineRealtime.disabled = !wcOk && !recOk;
+  els.engineRealtime.disabled = true; // This adapter exposes only the frozen-input export path.
   // Prefer Fast, then WebCodecs, then MediaRecorder
   if (fastOk) {
     els.engineFast.checked = true;
@@ -16488,12 +16514,7 @@ async function openExportSetup() {
       : "Needs the server + ffmpeg on PATH.");
   const wcNote = $("engineWebCodecsNote");
   if (wcNote) {
-    if (wcOk) wcNote.textContent = "Frame-accurate. Browser HW-encodes H.264; server muxes with audio. Faster upload than Fast.";
-    else if (ef) wcNote.textContent = fastOk
-      ? "Unavailable while an export frame is set — use Fast export."
-      : "Unavailable while an export frame is set. Install ffmpeg, or clear the export frame to use Realtime.";
-    else if (!state.connected || !state.ffmpeg) wcNote.textContent = "Needs the server + ffmpeg. Falling back to in-browser MediaRecorder when selected.";
-    else wcNote.textContent = "This browser does not support VideoEncoder Annex-B H.264. Falling back to MediaRecorder when selected.";
+    wcNote.textContent = "Unavailable: this live encoder cannot freeze export inputs. Choose Fast (ffmpeg).";
   }
   // Relabel the radio when WebCodecs is unavailable but MediaRecorder still works
   const label = els.engineRealtime?.closest("label")?.querySelector("b");
@@ -16561,11 +16582,10 @@ function startChosenExport() {
     setSetting("exportKind", c.kind);
     if (c.kind === "delivery") {
       setSetting("delivery", dlvSpec);
-      fastExport({ delivery: dlvSpec });
-    } else fastExport({ profile: c.id });
+      requestSnapshotExport({ delivery: dlvSpec });
+    } else requestSnapshotExport({ profile: c.id });
   }
-  else if (useSecond && state.connected && state.ffmpeg && state.webCodecs && !getExportFrame()) webCodecsExport();
-  else startExport();
+  else alert("This live export mode does not support frozen inputs. Choose Fast (ffmpeg).");
 }
 
 /* Keep Range's IN–OUT option in sync with marker presence without clobbering
@@ -17259,7 +17279,7 @@ async function exportDecodeFrame(c, t) {
     runtime.exportFrames.set(c.id, await src.frameAt(mediaTimeAt(c, t)));
     return true;
   } catch (e) {   // a decode error: this clip falls back to its element for the rest of the export
-    console.warn("[FableCut] export decode failed, using the video element:", e && e.message);
+    console.warn("[视频剪辑] export decode failed, using the video element:", e && e.message);
     src.close(); d.sources.set(c.id, null); runtime.exportFrames.delete(c.id);
     return false;
   }
@@ -17464,6 +17484,80 @@ async function prepareFrameAssets(t) {
     }
   }
 }
+/* UI exports submit to the same existing owner as MCP/REST. Only that job's
+   headless document renders; this live editor remains free to receive edits. */
+let uiSnapshotExport = null;
+async function cancelSnapshotExport() {
+  const current = uiSnapshotExport;
+  if (!current) return;
+  current.cancelRequested = true;
+  if (!current.id || current.cancelPromise) return current.cancelPromise;
+  current.cancelPromise = (async () => {
+    const res = await fetch("/api/export/job/cancel?id=" + encodeURIComponent(current.id), { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || "the export owner could not confirm stop");
+  })().catch((e) => { current.cancelError = String(e.message || e); });
+  return current.cancelPromise;
+}
+async function requestSnapshotExport(opts = {}, range = exportRangeMode()) {
+  if (uiSnapshotExport || state.exporting) return { error: "an export is already running" };
+  const current = uiSnapshotExport = { id: null, cancelRequested: false, cancelPromise: null };
+  const targetId = runtime.projectId, content = saveContent();
+  const choices = JSON.parse(JSON.stringify({ profile: opts.profile, delivery: opts.delivery, outputs: opts.outputs }));
+  if (!opts.silent) els.exportOverlay.classList.remove("hidden");
+  els.exportProgress.style.width = "0%";
+  els.exportTitle.textContent = "Saving export inputs…";
+  try {
+    if (!state.connected || !targetId) throw new Error("connect to the editor service before exporting");
+    if (!(await flushSave())) throw new Error("the draft could not be saved; no export was submitted");
+    if (runtime.projectId !== targetId || runtime.pendingSubmit || runtime.saveFailed || runtime.saveTimer || saveContent() !== content)
+      throw new Error("the project or draft changed while saving; review it before exporting");
+    const revision = runtime.confirmedRevision;
+    if (!Number.isSafeInteger(revision)) throw new Error("the saved project revision is unknown; no export was submitted");
+    if (current.cancelRequested) return { cancelled: true };
+    let res;
+    try {
+      res = await fetch("/api/export/request", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...choices, range, projectId: targetId, revision, where: "headless" }) });
+    } catch { throw new Error("export request result unknown — inspect the original jobs before retrying"); }
+    const submitted = await res.json();
+    if (!res.ok) throw new Error(submitted.error || "the saved project changed before export; your draft is kept");
+    if (!submitted.id || !submitted.snapshot) throw new Error("export owner did not return a frozen-input job");
+    current.id = submitted.id;
+    els.exportOverlay.dataset.jobId = submitted.id;
+    els.exportNote.textContent = "Exporting the saved snapshot. Later edits do not change this output.";
+    let job = submitted;
+    for (;;) {
+      if (current.cancelRequested) await cancelSnapshotExport();
+      if (current.cancelError) throw new Error("Stop not confirmed: " + current.cancelError);
+      const pct = Math.max(0, Math.min(1, job.progress || 0));
+      els.exportProgress.style.width = (pct * 100).toFixed(1) + "%";
+      els.exportTitle.textContent = current.cancelRequested ? "Stopping export…" : `Exporting… ${Math.round(pct * 100)}%`;
+      if (opts.onProgress) opts.onProgress(pct);
+      if (["done", "failed", "cancelled", "interrupted"].includes(job.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const status = await fetch("/api/export/job?id=" + encodeURIComponent(current.id), { cache: "no-store" });
+      job = await status.json();
+      if (!status.ok) throw new Error(job.error || "original export job is unavailable");
+    }
+    if (job.status === "cancelled") return { cancelled: true, jobId: current.id };
+    if (job.status !== "done" || !job.src) throw new Error(job.error || "export " + job.status);
+    const result = { outputs: job.result?.outputs || [{ file: decodeURIComponent(job.src.split("/").pop()), ok: true, src: job.src }], jobId: job.id, snapshot: job.snapshot };
+    if (!opts.silent) {
+      toast("Exported " + result.outputs.map((o) => o.file).join(", "));
+      const link = document.createElement("a");link.href = job.src;link.download = decodeURIComponent(job.src.split("/").pop());link.click();
+    }
+    return result;
+  } catch (e) {
+    const error = String(e.message || e);
+    if (!opts.silent) toast("Export not completed: " + error);
+    return { error, jobId: current.id };
+  } finally {
+    if (current.cancelPromise) await current.cancelPromise;
+    uiSnapshotExport = null;
+    els.exportOverlay.classList.add("hidden");
+  }
+}
 /** opts.job: an agent's export job id — progress and the result go back to
  *  the server instead of an alert / download (nobody may be watching).
  *  opts.profile: encoding profile id for this run.
@@ -17474,6 +17568,7 @@ async function prepareFrameAssets(t) {
 async function fastExport(opts = {}) {
   if (state.exporting) return { error: "an export is already running" };
   const job = opts.job || null;
+  const ownerJob = opts.ownerJob || job; // A mixed-fps group belongs to the aggregate without finishing it.
   pause();
   state.exporting = true; state.rendering = true; renderCancelled = false;
   exportAbort = new AbortController();
@@ -17499,12 +17594,12 @@ async function fastExport(opts = {}) {
     const begin = await fetch("/api/export/begin", {
       method: "POST",
       body: JSON.stringify(delivery ? {
-        fps, duration: frames / fps,
+        fps, duration: frames / fps, job: ownerJob,
         deliveries: deliveries.map((d) => ({ delivery: d.delivery, name: d.name || deliveryFileName(d.delivery, fps) })),
         canvasW: cv.w, canvasH: cv.h, region: cv.region, hasAudio: !!wav,
       } : {
         fps,
-        name: project.name.replace(/[^\w\- ]+/g, "") || "export",
+        job: ownerJob, name: project.name.replace(/[^\w\- ]+/g, "") || "export",
         profile: profileId,
         hasAudio: !!wav,
       }),
@@ -17730,14 +17825,13 @@ async function runQueue() {
       const group = exportQueue.filter((q) => q.status === "pending" && (q.spec.fps || projectFps()) === fps && q.range === first.range).slice(0, 8);
       for (const q of group) { q.status = "running"; q.progress = 0; q.error = null; }
       renderQueue();
-      exportRangeForced = first.range === "in-out" && hasWorkArea() ? "in-out" : "entire";
       let res;
-      try {
-        res = await fastExport({
-          deliveries: group.map((q) => ({ delivery: q.spec, name: q.name })), silent: true,
+      {
+        res = await requestSnapshotExport({
+          outputs: group.map((q) => ({ ...q.spec, filename: q.name })), silent: true,
           onProgress: (f) => { for (const q of group) q.progress = f; renderQueueProgress(); },
-        });
-      } finally { exportRangeForced = null; }
+        }, first.range);
+      }
       group.forEach((q, i) => {
         const o = res && res.outputs && res.outputs[i];
         if (o && o.ok) Object.assign(q, { status: "done", src: o.src, file: o.file, progress: 1, report: o.report || null });
@@ -17756,6 +17850,7 @@ async function runQueue() {
 }
 function stopQueue() {
   queueStop = true;
+  if (uiSnapshotExport) { cancelSnapshotExport(); return; }
   renderCancelled = true;
   try { exportAbort?.abort(); } catch { }
 }
@@ -17878,7 +17973,7 @@ async function runExportJob(ticket) {
         const all = [];
         let i = 0;
         for (const group of groups.values()) {
-          const res = await fastExport({ deliveries: group.map((delivery) => ({ delivery })), silent: true,
+          const res = await fastExport({ ownerJob: ticket.id, deliveries: group.map((delivery) => ({ delivery })), silent: true,
             onProgress: (f) => reportExportJob(ticket.id, { progress: (i + f) / groups.size }) });
           i++;
           if (res && res.cancelled) return reportExportJob(ticket.id, { status: "failed", error: "cancelled" }, true);
@@ -18492,6 +18587,7 @@ $("exportWcMode")?.addEventListener("change", async () => {
   if (!els.exportSetup.classList.contains("hidden")) openExportSetup();
 });
 $("btnCancelExport").addEventListener("click", () => {
+  if (uiSnapshotExport) { cancelSnapshotExport(); return; }
   if (state.rendering) {
     renderCancelled = true;
     try { exportAbort?.abort(); } catch { }
@@ -19523,7 +19619,7 @@ function drawWheel(w, vals) {
   const s = cv.width, ctx = cv.getContext("2d"), R = s / 2 - 2;
   ctx.clearRect(0, 0, s, s);
   ctx.drawImage(wheelDiscImage(s), 0, 0);
-  ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1;
+  ctx.strokeStyle = uiColor("scopeGrid", "rgba(255,255,255,0.18)"); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.arc(s / 2, s / 2, R, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath(); ctx.arc(s / 2, s / 2, R / 2, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(s / 2 - 6, s / 2); ctx.lineTo(s / 2 + 6, s / 2); ctx.moveTo(s / 2, s / 2 - 6); ctx.lineTo(s / 2, s / 2 + 6); ctx.stroke();
@@ -19532,7 +19628,7 @@ function drawWheel(w, vals) {
   const r = Math.hypot(px, py);
   if (r > 1) { px /= r; py /= r; }
   const x = s / 2 + px * R, y = s / 2 - py * R;
-  ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.lineWidth = 2;
+  ctx.fillStyle = uiColor("scopeHandle", "#fff"); ctx.strokeStyle = uiColor("scopeHandleBorder", "rgba(0,0,0,0.7)"); ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   const out = root.querySelector(`[data-wvals="${w}"]`);
   if (out) {
@@ -19763,7 +19859,7 @@ function drawCurveEditor(c) {
   const ctx = cv.getContext("2d"), tab = colorState.curveTab, d = curveSpec(tab), pad = 6 * dpr;
   const X = (x) => pad + (x / d.xMax) * (W - pad * 2), Y = (v) => H - pad - ((v - d.min) / (d.max - d.min)) * (H - pad * 2);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = "#0b0b0e"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = uiColor("scopeBackground", "#0b0b0e"); ctx.fillRect(0, 0, W, H);
   if (tab !== "curves") { // colour band: hue across, or grey → saturated
     for (let i = 0; i < 90; i++) {
       const u = i / 90, x0 = X(u * d.xMax), x1 = X((u + 1 / 90) * d.xMax) + 1;
@@ -19772,19 +19868,19 @@ function drawCurveEditor(c) {
       ctx.fillRect(x0, pad, x1 - x0, H - pad * 2);
     }
   }
-  ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1;
+  ctx.strokeStyle = uiColor("scopeGrid", "rgba(255,255,255,0.08)"); ctx.lineWidth = 1;
   for (const q of [0.25, 0.5, 0.75]) {
     ctx.beginPath(); ctx.moveTo(X(q * d.xMax), pad); ctx.lineTo(X(q * d.xMax), H - pad); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(pad, pad + q * (H - pad * 2)); ctx.lineTo(W - pad, pad + q * (H - pad * 2)); ctx.stroke();
   }
-  ctx.setLineDash([4 * dpr, 4 * dpr]); ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.setLineDash([4 * dpr, 4 * dpr]); ctx.strokeStyle = uiColor("scopeGrid", "rgba(255,255,255,0.25)");
   ctx.beginPath();
   if (tab === "curves") { ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(1), Y(1)); }
   else { ctx.moveTo(X(0), Y(d.neutral)); ctx.lineTo(X(d.xMax), Y(d.neutral)); }
   ctx.stroke(); ctx.setLineDash([]);
   const mark = colorState.curveMark?.[tab === "curves" ? "curves" : tab];
   if (mark != null) {
-    ctx.strokeStyle = "rgba(255,210,90,0.9)"; ctx.lineWidth = 1.5 * dpr;
+    ctx.strokeStyle = uiColor("scopeLine", "rgba(255,210,90,0.9)"); ctx.lineWidth = 1.5 * dpr;
     ctx.beginPath(); ctx.moveTo(X(mark), pad); ctx.lineTo(X(mark), H - pad); ctx.stroke();
   }
   const plot = (pts, color, width, ch) => {
@@ -19802,7 +19898,7 @@ function drawCurveEditor(c) {
   const pts = colorState.cdrag ? colorState.cdrag.pts : curvePoints(c, tab, colorState.curveCh);
   plot(pts, tab === "curves" ? CURVE_COLORS[colorState.curveCh] : "#ffffff", 1.6 * dpr);
   for (const [x, v] of pts) {
-    ctx.fillStyle = "#fff"; ctx.strokeStyle = "rgba(0,0,0,0.8)"; ctx.lineWidth = 1.5 * dpr;
+    ctx.fillStyle = uiColor("scopeHandle", "#fff"); ctx.strokeStyle = uiColor("scopeHandleBorder", "rgba(0,0,0,0.8)"); ctx.lineWidth = 1.5 * dpr;
     ctx.beginPath(); ctx.arc(X(x), Y(v), 4 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
   cv._map = { X, Y, toData: (px, py) => [
@@ -20440,9 +20536,9 @@ function drawScope(s, kind, data, sw, sh) {
   const { w, h, dpr } = sizeScopeCanvas(s), ctx = s.ctx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = "#0b0b0e";
+  ctx.fillStyle = uiColor("scopeBackground", "#0b0b0e");
   ctx.fillRect(0, 0, w, h);
-  ctx.font = `${Math.round(9 * dpr)}px ui-monospace, Consolas, monospace`;
+  ctx.font = `${Math.round(9 * dpr)}px ${uiColor("fontMono", "ui-monospace, Consolas, monospace")}`;
   if (kind === "waveform" || kind === "parade") {
     const padL = Math.round(22 * dpr), pad = Math.round(6 * dpr);
     const box = { x: padL, y: pad, w: w - padL - pad, h: h - pad * 2 };
@@ -20462,7 +20558,7 @@ function drawScope(s, kind, data, sw, sh) {
     scopes.tmpCtx.putImageData(img, 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(scopes.tmp, box.x, box.y, box.w, box.h);
-    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.fillStyle = "rgba(255,255,255,0.45)";
+    ctx.strokeStyle = uiColor("scopeGrid", "rgba(255,255,255,0.12)"); ctx.fillStyle = uiColor("scopeText", "rgba(255,255,255,0.45)");
     ctx.lineWidth = 1; ctx.textAlign = "right"; ctx.textBaseline = "middle";
     for (const lv of [0, 25, 50, 75, 100]) {
       const y = Math.round(box.y + box.h * (1 - lv / 100)) + 0.5;
@@ -20492,7 +20588,7 @@ function drawScope(s, kind, data, sw, sh) {
     }
     scopes.tmpCtx.putImageData(img, 0, 0);
     const cx = x0 + size / 2, cy = y0 + size / 2, k = size / 256;
-    ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = 1;
+    ctx.strokeStyle = uiColor("scopeGrid", "rgba(255,255,255,0.14)"); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(cx, cy, size / 2, 0, Math.PI * 2); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx - size / 2, cy); ctx.lineTo(cx + size / 2, cy); ctx.moveTo(cx, cy - size / 2); ctx.lineTo(cx, cy + size / 2); ctx.stroke();
     const a = Color.SKIN_ANGLE * Math.PI / 180;   // skin-tone line
@@ -20502,7 +20598,7 @@ function drawScope(s, kind, data, sw, sh) {
     ctx.globalCompositeOperation = "lighter";
     ctx.drawImage(scopes.tmp, x0, y0, size, size);
     ctx.globalCompositeOperation = "source-over";
-    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.strokeStyle = uiColor("scopeLine", "rgba(255,255,255,0.5)"); ctx.fillStyle = uiColor("scopeText", "rgba(255,255,255,0.55)");
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const bx = 5 * dpr;
     for (const t of Color.vectorTargets()) {
@@ -20527,14 +20623,14 @@ function drawScope(s, kind, data, sw, sh) {
     };
     plot(H4.r, "rgba(255,70,70,0.55)"); plot(H4.g, "rgba(70,255,100,0.5)"); plot(H4.b, "rgba(80,130,255,0.6)");
     ctx.globalCompositeOperation = "source-over";
-    ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = 1;
+    ctx.strokeStyle = uiColor("scopeLine", "rgba(255,255,255,0.75)"); ctx.lineWidth = 1;
     ctx.beginPath();
     for (let i = 0; i < 256; i++) {
       const x = box.x + box.w * i / 255, y = box.y + box.h * (1 - Math.min(1, H4.y[i] / mx));
       if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
     }
     ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,0.1)";
+    ctx.strokeStyle = uiColor("scopeGrid", "rgba(255,255,255,0.1)");
     for (const q of [0.25, 0.5, 0.75]) {
       const x = Math.round(box.x + box.w * q) + 0.5;
       ctx.beginPath(); ctx.moveTo(x, box.y); ctx.lineTo(x, box.y + box.h); ctx.stroke();
@@ -20543,6 +20639,26 @@ function drawScope(s, kind, data, sw, sh) {
 }
 for (const b of document.querySelectorAll("#wsSwitch [data-ws]"))
   b.addEventListener("click", () => setWorkspace(b.dataset.ws));
+
+function repaintEditorTheme() {
+  drawRuler();
+  // Repaint the existing wave canvases; never rebuild rows or steal an active
+  // inspector/gesture's DOM state for a colour-only host change.
+  for (const element of els.tracks.querySelectorAll(".clip.has-wave")) {
+    const clip = getClip(element.dataset.id), canvas = element.querySelector(".wave");
+    const track = clip && trackOf(clip);
+    if (canvas && track) drawClipWave(canvas, clip, track.h);
+  }
+  updateKfGraphs();
+  meterState.lastLit = {}; meterState.lastHold = {};
+  paintMixerMeters();
+  // Never interrupt a compositor that is exporting/sampling an exact frame.
+  if (!state.exporting && !runtime.sampling) {
+    if (!state.playing) drawFrame();
+    if (!state.source.playing) drawSourceFrame();
+  }
+}
+window.addEventListener("desirecore:themechange", repaintEditorTheme);
 
 initPanelSplit();
 buildTrackDOM();

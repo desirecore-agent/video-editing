@@ -1,0 +1,10 @@
+// Unit-only wire/process substitutes. No Chrome, actual encoder or output movie.
+const fs=require('fs'),path=require('path'),cp=require('child_process'),Module=require('module'),{EventEmitter}=require('events'),{PassThrough}=require('stream');
+const dir=process.env.FABLECUT_EXPORT_UNIT_GATE,kind=process.env.FABLECUT_EXPORT_UNIT_KIND;
+if(dir){
+ const load=Module._load;Module._load=function(request,parent,...rest){const mod=load.call(this,request,parent,...rest);if(request==='./export-jobs'&&parent?.filename.endsWith('server.js')&&kind!=='no-browser')return {...mod,createExportJobs:opts=>mod.createExportJobs({...opts,launchBrowser:()=>{}})};if(request==='./export-snapshot'&&parent?.filename.endsWith('server.js')&&kind==='capture')return {...mod,capture:async(...args)=>{const snapshot=await mod.capture(...args);await new Promise(resolve=>ready(resolve,[]));return snapshot;}};return mod;};
+ const ready=(fn,args)=>{fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'ready'),'unit');const timer=setInterval(()=>{if(fs.existsSync(path.join(dir,'release'))){clearInterval(timer);fn(...args);}},10);};
+ const sync=cp.spawnSync;cp.spawnSync=function(cmd,args,...rest){if(cmd==='ffmpeg'&&args.includes('-version'))return {status:0,stdout:Buffer.from('unit substitute')};return sync.call(this,cmd,args,...rest);};
+ const exec=cp.execFile;cp.execFile=function(cmd,args,...rest){if(cmd==='ffmpeg'&&args.includes('-encoders')){const fn=rest.find(v=>typeof v==='function');const values=[null,' V..... libx264 H264\n A..... aac AAC\n',''];if(kind==='admission')ready(fn,values);else setTimeout(()=>fn(...values),1);return {pid:undefined,kill(){}};}return exec.call(this,cmd,args,...rest);};
+ const spawn=cp.spawn;cp.spawn=function(cmd,args,...rest){if(cmd==='ffmpeg'&&args.includes('lavfi')){const proc=new EventEmitter();proc.stderr=new PassThrough();proc.stdin=new PassThrough();proc.kill=()=>{};const on=proc.on.bind(proc);proc.on=(name,fn)=>{if(name==='close'){if(kind==='begin')ready(fn,[0]);else setTimeout(()=>fn(0),1);return proc;}return on(name,fn);};return proc;}return spawn.call(this,cmd,args,...rest);};
+}

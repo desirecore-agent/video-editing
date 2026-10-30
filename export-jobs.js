@@ -48,13 +48,27 @@ function findBrowser(env = process.env) {
 function createExportJobs(opts) {
   const jobs = new Map();
   let timer = null;
-  const isEnded = (j) => j.status === "done" || j.status === "failed" || j.status === "cancelled";
+  const isEnded = (j) => j.status === "done" || j.status === "failed" || j.status === "cancelled" || j.status === "interrupted";
   const view = (j) => ({
     id: j.id, kind: j.kind, status: j.status, via: j.via, range: j.range, profile: j.profile || null, preset: j.delivery ? j.delivery.preset || "custom" : null,
     time: j.time ?? null, progress: j.progress, src: j.src || null, result: j.result || null, error: j.error || null,
+    snapshot: j.snapshot || null,
     created: j.created, updated: j.updated,
   });
 
+  function persist(j) {
+    if (!opts.storeDir) return;
+    fs.mkdirSync(opts.storeDir, {recursive:true});
+    const file=path.join(opts.storeDir,j.id+".json"), tmp=file+".tmp";
+    fs.writeFileSync(tmp,JSON.stringify({...j,browser:undefined}));fs.renameSync(tmp,file);
+  }
+  if (opts.storeDir && fs.existsSync(opts.storeDir)) for (const file of fs.readdirSync(opts.storeDir)) {
+    if (!/^x_[a-z0-9]+\.json$/.test(file)) continue;
+    try { const j=JSON.parse(fs.readFileSync(path.join(opts.storeDir,file),"utf8"));
+      if (!isEnded(j)) Object.assign(j,{status:"interrupted",error:"server restarted; original job retained, no automatic re-render",updated:Date.now()});
+      jobs.set(j.id,j);persist(j);
+    } catch(e) { throw new Error("cannot restore export receipt "+file+": "+e.message); }
+  }
   function closeBrowser(j) {
     const b = j.browser;
     if (!b) return;
@@ -71,6 +85,7 @@ function createExportJobs(opts) {
   function end(j, status, fields = {}) {
     if (isEnded(j)) return;
     Object.assign(j, fields, { status, updated: Date.now() });
+    persist(j);
     closeBrowser(j);
   }
   function sweep() {
@@ -88,8 +103,8 @@ function createExportJobs(opts) {
   }
   function launch(j) {
     const exe = findBrowser();
-    if (!exe) throw Object.assign(new Error("no editor tab is open and no Chrome / Edge was found to export headless — " +
-      "open the editor in a browser, or set FABLECUT_CHROME to a Chromium-based browser"), { code: 409 });
+    if (!exe) throw Object.assign(new Error("没有可用的后台导出浏览器；请通过视频剪辑运行时准备 Chromium，" +
+      "或为独立运行设置 FABLECUT_CHROME"), { code: 409 });
     const kept = opts.keepProfile ? opts.keepProfile(j.kind) : null;
     if (kept) fs.mkdirSync(kept, { recursive: true });
     const profileDir = kept || fs.mkdtempSync(path.join(os.tmpdir(), "fablecut-export-"));
@@ -112,7 +127,7 @@ function createExportJobs(opts) {
      *  kind "transcribe" turns files' speech into words and saves them (fablecut_transcribe).
      *  A scopes job's `image` flag also returns that still as a JPEG data URL,
      *  which is how fablecut_frame shows an agent the composed program picture. */
-    request({ kind = "export", range, profile, delivery = null, deliveries = null, time, revision, where = "auto", matte = null, mask = null, track = null, transcribe = null, image = false }) {
+    request({ kind = "export", range, profile, delivery = null, deliveries = null, time, revision, where = "auto", matte = null, mask = null, track = null, transcribe = null, image = false, snapshot = null }) {
       if (!["auto", "tab", "headless"].includes(where)) throw Object.assign(new Error("where must be auto, tab or headless"), { code: 400 });
       if (!["export", "scopes", "track", "transcribe"].includes(kind)) throw Object.assign(new Error("kind must be export, scopes, track or transcribe"), { code: 400 });
       if (time != null && !(Number.isFinite(time) && time >= 0)) throw Object.assign(new Error("time must be seconds ≥ 0"), { code: 400 });
@@ -123,7 +138,7 @@ function createExportJobs(opts) {
       if (where === "tab" && !tabs) throw Object.assign(new Error("no editor tab is open — open the editor, or use where:\"headless\""), { code: 409 });
       const now = Date.now();
       const j = {
-        id: "x_" + Math.random().toString(36).slice(2, 10), kind, status: "pending", progress: 0,
+        id: "x_" + Math.random().toString(36).slice(2, 10), kind, status: "pending", progress: 0, snapshot,
         range: range || null, profile: profile || null, delivery: kind === "export" && delivery ? delivery : null,
         deliveries: kind === "export" && Array.isArray(deliveries) && deliveries.length ? deliveries : null, time: time ?? null, revision: Number.isFinite(revision) ? revision : null,
         matte: kind === "scopes" && matte ? { clip: String(matte.clip), layer: matte.layer } : null,
@@ -134,20 +149,22 @@ function createExportJobs(opts) {
         via: where === "headless" || (where === "auto" && !tabs) ? "headless" : "tab",
         created: now, updated: now,
       };
-      if (j.via === "headless") launch(j);
+      if (j.via === "headless") (opts.launchBrowser || launch)(j);
       jobs.set(j.id, j);
+      persist(j);
       if (j.via === "tab") opts.broadcast("export", JSON.stringify(this.ticket(j.id)));
       if (!timer) { timer = setInterval(sweep, 1000); timer.unref?.(); }
       return view(j);
     },
     get(id) { const j = jobs.get(id); return j ? view(j) : null; },
     /** What a tab needs to run the job (headless pages fetch it by id). */
-    ticket(id) { const j = jobs.get(id); return j ? { id: j.id, kind: j.kind, range: j.range, profile: j.profile, delivery: j.delivery || null, deliveries: j.deliveries || null, time: j.time, revision: j.revision, matte: j.matte || null, mask: j.mask || null, track: j.track || null, transcribe: j.transcribe || null, image: !!j.image, status: j.status } : null; },
+    ticket(id) { const j = jobs.get(id); return j ? { id: j.id, kind: j.kind, range: j.range, profile: j.profile, delivery: j.delivery || null, deliveries: j.deliveries || null, time: j.time, revision: j.revision, matte: j.matte || null, mask: j.mask || null, track: j.track || null, transcribe: j.transcribe || null, image: !!j.image, status: j.status, snapshot: j.snapshot || null } : null; },
     /** First tab to claim a pending job runs it. */
     claim(id) {
       const j = jobs.get(id);
       if (!j || j.status !== "pending") return false;
       j.status = "running"; j.updated = Date.now();
+      persist(j);
       return true;
     },
     /** Progress / result from the running tab. Returns {cancel} so a cancel reaches it. */
@@ -160,16 +177,17 @@ function createExportJobs(opts) {
       if (Number.isFinite(progress)) j.progress = Math.max(0, Math.min(1, progress));
       if (status === "done") end(j, "done", { progress: 1, src: String(src || ""), result: result && typeof result === "object" ? result : null });
       else if (status === "failed") end(j, "failed", { error: String(error || "export failed") });
+      persist(j);
       return { cancel: false };
     },
     cancel(id) {
       const j = jobs.get(id);
       if (!j) return null;
       // A running tab hears about it on its next report and stops; pending just ends.
-      if (!isEnded(j)) end(j, "cancelled", { error: "cancelled" });
+      if (!isEnded(j)) { end(j, "cancelled", { error: "cancelled" }); opts.onCancel?.(id); }
       return view(j);
     },
-    shutdown() { for (const j of jobs.values()) closeBrowser(j); if (timer) clearInterval(timer); },
+    shutdown() { for (const j of jobs.values()) { if (!isEnded(j)) end(j,"interrupted",{error:"server stopped; original job retained, explicit retry required"}); else closeBrowser(j); } if (timer) clearInterval(timer); },
   };
 }
 
