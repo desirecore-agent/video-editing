@@ -76,7 +76,12 @@ function createExportJobs(opts) {
     if(paths.size>4096)throw Error("export artifact attribute batch exceeds its bounded budget");
     // One synchronous operation-local native query, never one process per
     // record/ancestor and never cached across an await or another cleanup.
-    const names=[...paths],script='$ErrorActionPreference="Stop"; [Console]::InputEncoding=[Text.Encoding]::UTF8; $paths=@([Console]::In.ReadToEnd()|ConvertFrom-Json); $result=@(foreach($p in $paths){try{$a=(Get-Item -LiteralPath $p -Force -ErrorAction Stop).Attributes; [int](($a -band [IO.FileAttributes]::ReparsePoint) -ne 0)}catch{if($_.CategoryInfo.Category -eq "ObjectNotFound"){-1}else{throw}}}); [Console]::Write((ConvertTo-Json -InputObject $result -Compress))';
+    // Windows PowerShell 5 emits a JSON array as one pipeline value. Assign
+    // that array directly: @(... | ConvertFrom-Json) would nest it and make
+    // Get-Item query several paths in one iteration, losing per-path results.
+    // A missing literal containing [] can emit no item without an error in
+    // PowerShell 5. It is unconfirmed, never a successful non-reparse result.
+    const names=[...paths],script='$ErrorActionPreference="Stop"; [Console]::InputEncoding=[Text.Encoding]::UTF8; $paths=ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()); $result=@(foreach($p in $paths){try{$item=Get-Item -LiteralPath $p -Force -ErrorAction Stop; if($null -eq $item){-1}else{if($item -isnot [IO.FileSystemInfo] -or $null -eq $item.Attributes){throw "export artifact attributes are unconfirmed"}; $a=$item.Attributes; [int](($a -band [IO.FileAttributes]::ReparsePoint) -ne 0)}}catch{if($_.CategoryInfo.Category -eq "ObjectNotFound"){-1}else{throw}}}); [Console]::Write((ConvertTo-Json -InputObject $result -Compress))';
     const probe=spawnSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",script],{input:JSON.stringify(names),encoding:"utf8",windowsHide:true,timeout:1500,maxBuffer:1024*1024});
     if(probe.error||probe.status!==0)throw Error("export artifact reparse status is unsafe or unconfirmed");
     let flags;try{flags=JSON.parse(probe.stdout);}catch{throw Error("export artifact attribute batch is invalid");}

@@ -123,6 +123,8 @@ test("startup checks all restored jobs and ancestors in one exact batch, includi
 
 const invalidResponses = [
   ["short flag array", paths => ({ status: 0, stdout: JSON.stringify(paths.map(() => 0).slice(1)) }), /batch is incomplete/],
+  ["extra flag array", paths => ({ status: 0, stdout: JSON.stringify([...paths.map(() => 0), 0]) }), /batch is incomplete/],
+  ["scalar flag instead of array", () => ({ status: 0, stdout: "0" }), /batch is incomplete/],
   ["invalid flag value", paths => ({ status: 0, stdout: JSON.stringify(paths.map((_, i) => i === 0 ? 7 : 0)) }), /batch is incomplete/],
   ["invalid JSON", () => ({ status: 0, stdout: "not JSON" }), /batch is invalid/],
   ["native nonzero exit", () => ({ status: 4, stdout: "[]", stderr: "unit native failure" }), /unsafe or unconfirmed/],

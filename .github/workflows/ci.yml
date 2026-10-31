@@ -58,6 +58,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
+      - name: Exercise actual Windows PowerShell export ownership checks
+        if: runner.os == 'Windows'
+        run: node --test --test-concurrency=1 test/desirecore-export-windows-native.test.js
       - name: Install declared Linux headless system libraries
         if: runner.os == 'Linux'
         run: |

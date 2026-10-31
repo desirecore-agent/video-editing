@@ -237,8 +237,8 @@
     },
     {
       "path": "export-jobs.js",
-      "sha256": "a9f82f70908e0ddd5a08a0456007e9f03038ff9c85a62ae4cf70b48cffa445c4",
-      "size": 26005,
+      "sha256": "07d00c0e0334b8c1170e67bb4f6c80b8b793cc8acd7e2dbaabe57c672a83a38d",
+      "size": 26566,
       "role": "runtime"
     },
     {
@@ -796,7 +796,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "8138c58add5e105fc054b8d96b7d55d5e9d004cee325aac3307518cec44cc35d"
+    "sha256": "ed28cb313256682b89ee7bbd3343a6040b62075c3ce042de87f1b232350346b2"
   },
   "supportedPlatforms": [
     "darwin",
@@ -829,5 +829,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "dbd944b12f4ed809882af9d561ee71743095d9c3efe19f406fc68387a02f979c"
+  "releaseDigest": "cdf1dc6b14261662518fdc08c127bdf6f948afbcbf31a7b77208d26d552e6fec"
 }
