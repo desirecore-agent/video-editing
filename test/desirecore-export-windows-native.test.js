@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const cp = require("node:child_process");
+const crypto = require("node:crypto");
 
 test("Windows PowerShell reads exact UTF-8 paths for creation and original-job recovery", { skip: process.platform !== "win32" }, t => {
   const dataRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "video-editing-属性-'[$]-")));
@@ -23,9 +24,27 @@ test("Windows PowerShell reads exact UTF-8 paths for creation and original-job r
   });
   // Observe real child results without substituting or changing their behavior.
   // In particular a missing literal path must not silently report a safe flag 0.
+  const diagnosticText = value => {
+    const text = String(value ?? ""), bytes = Buffer.from(text, "utf8");
+    return { chars: text.length, utf8Bytes: bytes.length, sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+      preview: bytes.subarray(0, 4096).toString("utf8"), truncated: bytes.length > 4096 };
+  };
+  const diagnosticError = error => error ? { name: error.name, code: error.code ?? null, message: diagnosticText(error.message) } : null;
   cp.spawnSync = (command, args, options) => {
     const paths = JSON.parse(options.input), exists = paths.map(file => fs.existsSync(file));
-    const result = nativeSpawnSync(command, args, options);
+    const started = process.hrtime.bigint();
+    let result;
+    try { result = nativeSpawnSync(command, args, options); }
+    catch (error) {
+      t.diagnostic(JSON.stringify({ kind: "actual-powershell-attribute-probe", call: probes.length + 1, command,
+        pathCount: paths.length, existsBeforeQuery: exists, elapsedMs: Number(process.hrtime.bigint() - started) / 1e6,
+        thrownNodeError: diagnosticError(error) }));
+      throw error;
+    }
+    t.diagnostic(JSON.stringify({ kind: "actual-powershell-attribute-probe", call: probes.length + 1, command,
+      pathCount: paths.length, existsBeforeQuery: exists, elapsedMs: Number(process.hrtime.bigint() - started) / 1e6,
+      error: diagnosticError(result.error), status: result.status ?? null, signal: result.signal ?? null,
+      observedEncoding: options.encoding, stdout: diagnosticText(result.stdout), stderr: diagnosticText(result.stderr) }));
     probes.push({ command, paths, exists, result });
     return result;
   };
