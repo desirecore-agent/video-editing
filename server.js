@@ -179,7 +179,7 @@ function readBody(req) {
 }
 /** Claim final + sibling `.part` paths with exclusive create (`wx`) so concurrent
  *  exports cannot pick the same free name before either file exists. */
-function reserveExportPaths(dir, baseName, ext) {
+function reserveExportPaths(dir, baseName, ext, job, sessionId) {
   const base = baseName.replace(/\.(mp4|mov|m4v|mkv|webm)$/i, "");
   let i = 0;
   for (;;) {
@@ -189,7 +189,8 @@ function reserveExportPaths(dir, baseName, ext) {
     const partPath = path.join(dir, stem + ".part" + ext);
     if (fs.existsSync(outPath)) continue;
     try {
-      fs.closeSync(fs.openSync(partPath, "wx")); // exclusive create — claim the name
+      if(job)exportJobs.createArtifact(job,sessionId,partPath,"part");
+      else fs.closeSync(fs.openSync(partPath, "wx")); // exclusive create — claim the name
     } catch (e) {
       if (e.code === "EEXIST") continue;
       throw e;
@@ -258,6 +259,20 @@ const COLOR_BSF = "h264_metadata=colour_primaries=1:transfer_characteristics=1:m
 const EXPORT_IDLE_MS = 10 * 60 * 1000; // abandon sessions with no successful activity
 const EXPORT_SWEEP_MS = 60 * 1000;
 let exportSweepTimer = null;
+function sessionDirectory(id,job) {
+  const dir=path.join(EXPORTS_DIR,"fablecut-"+id+"-"+crypto.randomUUID());
+  if(job)exportJobs.createArtifact(job,id,dir,"directory");else fs.mkdirSync(dir,{mode:0o700});
+  return dir;
+}
+function sessionFile(sess,name) {
+  const file=path.join(sess.dir,name);
+  if(sess.job)exportJobs.createArtifact(sess.job,sess.id,file,"temp-file");else fs.closeSync(fs.openSync(file,"wx"));
+  return file;
+}
+function requireRunningSession(sess) {
+  if(sess.closing||exportSessions.get(sess.id)!==sess||(sess.job&&exportJobs.get(sess.job)?.status!=="running"))
+    throw Object.assign(Error("original export job ended while encoder setup was pending"),{code:409});
+}
 function touchExport(sess) {
   if (sess) sess.lastTouch = Date.now();
 }
@@ -273,10 +288,11 @@ function attachProc(sess, proc) {
    test encode, because a build lists h264_nvenc / _qsv / _amf whether or not
    this machine has the GPU. Asked once, in the background, on first use. */
 let deliveryEncodersP = null;
-function runFfmpeg(args, timeout = 15000) {
+function runFfmpeg(args, timeout = 15000, onProcess) {
   return new Promise((resolve) => {
-    execFile("ffmpeg", args, { timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
+    const proc=execFile("ffmpeg", args, { timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
       (err, stdout, stderr) => resolve({ code: err ? (err.code ?? 1) : 0, stdout: String(stdout || ""), stderr: String(stderr || "") }));
+    onProcess?.(proc);
   });
 }
 function deliveryEncoders() {
@@ -320,34 +336,29 @@ async function beginDeliveryExport(rate, name, hasAudio, extra) {
   const off = outs.map((o, i) => [o, i]).filter(([o]) => o.spec.fps != null && Math.abs(o.spec.fps - rate) > 0.01);
   if (off.length) throw new Error(off.map(([o, i]) => `output ${i + 1} asks for ${o.spec.fps} fps but this render is ${rate} fps`).join("; ") + " — render each frame rate separately");
   const input = outs.some((o) => Delivery.frameInput(o.spec) === "rgba") ? "rgba" : "jpeg";
-  // check every output on a 0.1 s synthetic canvas before the browser renders anything
-  const dryDir = fs.mkdtempSync(path.join(os.tmpdir(), "fablecut-dry-"));
-  try {
-    const dry = await Promise.all(outs.map((o, i) => runFfmpeg(Delivery.ffmpegArgs(o.spec, { fps: rate, input, canvasW, canvasH, frame: o.frame,
-      hasAudio, dry: true, outPath: path.join(dryDir, `probe${i}` + Delivery.CONTAINERS[o.spec.container].ext) }), 30000)));
-    const bad = dry.map((d, i) => [d, outs[i]]).filter(([d]) => d.code !== 0);
-    if (bad.length) {
-      throw new Error(bad.map(([d, o]) => {
-        const why = d.stderr.trim().split("\n").filter(Boolean).slice(-3).map((l) => l.trim()).join(" · ");
-        return `ffmpeg rejected these settings (${Delivery.describe(o.spec)}): ${why || "exit " + d.code}`;
-      }).join("\n"));
-    }
-  } finally { try { fs.rmSync(dryDir, { recursive: true, force: true }); } catch {} }
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const dir = fs.mkdtempSync(path.join(EXPORTS_DIR, "fablecut-"));
+  const dir=sessionDirectory(id,extra.job);
   const duration = Number.isFinite(+extra.duration) && +extra.duration > 0 ? +extra.duration : null;
-  for (const o of outs) {
-    const ext = Delivery.CONTAINERS[o.spec.container].ext;
-    Object.assign(o, reserveExportPaths(EXPORTS_DIR, safeName(o.name || "export"), ext), { proc: null, stderr: "", done: null, failed: null });
-    o.err = () => o.stderr.trim().split("\n").filter(Boolean).slice(-3).map((l) => l.trim()).join(" · ");
-  }
-  const sess = {
-    mode: "jpeg", proc: null, fps: rate, outputs: outs, input, canvasW, canvasH, duration,
-    hasAudio: !!hasAudio, dir, wav: null, partPath: null, outPath: null,
-    stderr: "", done: null, lastTouch: Date.now(), err: () => "",
-  };
-  sess.writeLock = Promise.resolve();
-  exportSessions.set(id, sess);
+  const sess={id,job:extra.job||null,mode:"jpeg",proc:null,fps:rate,outputs:outs,input,canvasW,canvasH,duration,
+    hasAudio:!!hasAudio,dir,wav:null,partPath:null,outPath:null,preflightProcs:[],stderr:"",done:null,lastTouch:Date.now(),err:()=>"",writeLock:Promise.resolve()};
+  exportSessions.set(id,sess);
+  try {
+    // Every preflight output belongs to the same durable job/session before ffmpeg writes it.
+    const probes=outs.map((o,i)=>sessionFile(sess,`probe${i}`+Delivery.CONTAINERS[o.spec.container].ext));
+    const dry = await Promise.all(outs.map((o,i)=>runFfmpeg(Delivery.ffmpegArgs(o.spec,{fps:rate,input,canvasW,canvasH,frame:o.frame,
+      hasAudio,dry:true,outPath:probes[i]}),30000,proc=>sess.preflightProcs.push(proc))));
+    requireRunningSession(sess);
+    const bad=dry.map((d,i)=>[d,outs[i]]).filter(([d])=>d.code!==0);
+    if(bad.length)throw Error(bad.map(([d,o])=>{
+      const why=d.stderr.trim().split("\n").filter(Boolean).slice(-3).map(l=>l.trim()).join(" · ");
+      return `ffmpeg rejected these settings (${Delivery.describe(o.spec)}): ${why||"exit "+d.code}`;
+    }).join("\n"));
+    for(const o of outs){
+      const ext=Delivery.CONTAINERS[o.spec.container].ext;
+      Object.assign(o,reserveExportPaths(EXPORTS_DIR,safeName(o.name||"export"),ext,sess.job,id),{proc:null,stderr:"",done:null,failed:null});
+      o.err=()=>o.stderr.trim().split("\n").filter(Boolean).slice(-3).map(l=>l.trim()).join(" · ");
+    }
+  }catch(e){await cleanupExport(id,sess);throw e;}
   const jpegQuality = Math.max(...outs.map((o) => Delivery.jpegQuality(o.spec)));
   const view = outs.map((o) => ({ file: path.basename(o.outPath), spec: o.spec, notes: o.notes, summary: Delivery.describe(o.spec), size: { w: o.frame.outW, h: o.frame.outH } }));
   // the single-output fields stay as they were for one delivery
@@ -417,41 +428,25 @@ async function beginExport(fps, name, profileId, hasAudio, mode, extra = {}) {
   if (m === "jpeg" && (extra.delivery || extra.deliveries)) return beginDeliveryExport(rate, name, hasAudio, extra);
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const safe = safeName(name || "export");
-  // Same filesystem as the finished file so renameSync(partPath, out) cannot EXDEV.
-  const dir = fs.mkdtempSync(path.join(EXPORTS_DIR, "fablecut-"));
-
-  if (m === "annexb") {
-    const { outPath, partPath } = reserveExportPaths(EXPORTS_DIR, safe, ".mp4");
-    const sess = {
-      mode: m, fps: rate, proc: null, dir,
-      name: safe, hasAudio: !!hasAudio,
-      wav: null, partPath, outPath,
-      stderr: "", done: null, lastTouch: Date.now(),
-      err: () => sess.stderr.trim().split("\n").filter(Boolean).slice(-3)
-        .map((l) => l.trim()).join(" · "),
-    };
-    sess.writeLock = Promise.resolve();
-    exportSessions.set(id, sess);
-    return { id, mode: m };
-  }
-
-  const profile = resolveProfile(profileId);
-  const dry = await dryRunProfile(profile, { fps: rate, hasAudio });
-  if (!dry.ok) throw new Error(`profile "${profile.id}" was rejected by ffmpeg: ${dry.error}`);
-  // Reserve the output name now (not at first frame) so concurrent exports
-  // cannot both see the same free path. The empty .part file is overwritten by ffmpeg (-y).
-  const { outPath, partPath } = reserveExportPaths(EXPORTS_DIR, safe, profile.extension);
-  const sess = {
-    mode: m, proc: null, fps: rate, profile, name: safe, hasAudio: !!hasAudio,
-    pixelFormat, width, height,
-    dir, wav: null, partPath, outPath,
-    stderr: "", done: null, lastTouch: Date.now(),
-    err: () => sess.stderr.trim().split("\n").filter(Boolean).slice(-3)
-      .map((l) => l.trim()).join(" · "),
-  };
-  sess.writeLock = Promise.resolve();
-  exportSessions.set(id, sess);
-  return { id, mode: m, profile: profile.id, label: profile.label, summary: profileSummary(profile) };
+  // Same filesystem as final output; the original job owns all temporary facts before writes.
+  const dir=sessionDirectory(id,extra.job);
+  const sess={id,job:extra.job||null,mode:m,proc:null,fps:rate,name:safe,hasAudio:!!hasAudio,pixelFormat,width,height,
+    dir,wav:null,partPath:null,outPath:null,preflightProcs:[],stderr:"",done:null,lastTouch:Date.now(),writeLock:Promise.resolve(),
+    err:()=>sess.stderr.trim().split("\n").filter(Boolean).slice(-3).map(l=>l.trim()).join(" · ")};
+  exportSessions.set(id,sess);
+  try {
+    if(m==="annexb") {
+      Object.assign(sess,reserveExportPaths(EXPORTS_DIR,safe,".mp4",sess.job,id));return{id,mode:m};
+    }
+    const profile=resolveProfile(profileId);
+    sess.profile=profile;
+    const probe=sessionFile(sess,"probe"+profile.extension);
+    const dry=await dryRunProfile(profile,{fps:rate,hasAudio,directory:dir,outPath:probe,onProcess:proc=>sess.preflightProcs.push(proc)});
+    requireRunningSession(sess);
+    if(!dry.ok)throw Error(`profile "${profile.id}" was rejected by ffmpeg: ${dry.error}`);
+    Object.assign(sess,{profile},reserveExportPaths(EXPORTS_DIR,safe,profile.extension,sess.job,id));
+    return{id,mode:m,profile:profile.id,label:profile.label,summary:profileSummary(profile)};
+  }catch(e){await cleanupExport(id,sess);throw e;}
 }
 /* Encode into the paths reserved at /begin; rename .part → final on clean exit
    so an aborted render never leaves something that looks like a finished file. */
@@ -536,18 +531,36 @@ function stopEncoder(proc) {
   });
   encoderStops.set(proc,stopped);return stopped;
 }
-function cleanupExport(id) {
-  const s=exportSessions.get(id);if(!s)return Promise.resolve({encoderConfirmed:true,cleanupConfirmed:true});
-  exportSessions.delete(id);
-  const stops=[stopEncoder(s.proc),...(s.outputs||[]).map(o=>stopEncoder(o.proc))];
-  // Windows cannot unlink an encoder's open output/WAV handle. Join physical
-  // close first, then delete only this exact session's paths.
-  return Promise.all(stops).then(results=>{
-    let clean=true;const remove=(file,recursive=false)=>{if(file)try{fs.rmSync(file,{recursive,force:true});}catch{clean=false;}};
-    for(const o of s.outputs||[])remove(o.partPath);
-    remove(s.dir,true);remove(s.partPath);
-    return {encoderConfirmed:results.every(Boolean),cleanupConfirmed:clean};
+function cleanupExport(id,knownSession) {
+  const s=knownSession||exportSessions.get(id);
+  if(!s)return Promise.resolve({encoderConfirmed:false,cleanupConfirmed:false});
+  if(s.cleanupPromise)return s.cleanupPromise;
+  s.closing=true;
+  const stops=[stopEncoder(s.proc),...(s.outputs||[]).map(o=>stopEncoder(o.proc)),...(s.preflightProcs||[]).map(stopEncoder)];
+  // Join physical close before deleting any output/audio handle (required on Windows).
+  const work=Promise.all(stops).then(results=>{
+    const encoderConfirmed=results.every(Boolean);
+    if(!encoderConfirmed){if(s.job)exportJobs.cleanupArtifacts(s.job,id,false);return{encoderConfirmed:false,cleanupConfirmed:false};}
+    if(s.job){const cleanup=exportJobs.cleanupArtifacts(s.job,id);return{encoderConfirmed:true,cleanupConfirmed:cleanup.status==="complete",cleanup};}
+    // Raw non-job sessions retain their live owner; only exact known files and an empty directory.
+    let clean=true;const remove=file=>{if(file)try{fs.unlinkSync(file);}catch(e){if(e.code!=="ENOENT")clean=false;}};
+    for(const o of s.outputs||[])remove(o.partPath);remove(s.partPath);remove(s.wav);
+    for(const name of s.outputs? s.outputs.map((o,i)=>`probe${i}`+Delivery.CONTAINERS[o.spec.container].ext):s.profile?["probe"+s.profile.extension]:[])remove(path.join(s.dir,name));
+    try{fs.rmdirSync(s.dir);}catch(e){if(e.code!=="ENOENT")clean=false;}
+    return{encoderConfirmed:true,cleanupConfirmed:clean};
   });
+  s.cleanupPromise=work.then(result=>{
+    s.cleanupPromise=null;
+    // Retain in-flight/failed original session facts. A later cancel must join
+    // the same work or retry its unconfirmed process, never assume absence=stop.
+    if(result.encoderConfirmed&&result.cleanupConfirmed&&exportSessions.get(id)===s)exportSessions.delete(id);
+    return result;
+  },error=>{
+    s.cleanupPromise=null;
+    if(s.job)exportJobs.cleanupArtifacts(s.job,id,false);
+    return{encoderConfirmed:false,cleanupConfirmed:false,error:"cleanup failed: "+String(error.code||error.message)};
+  });
+  return s.cleanupPromise;
 }
 function sweepIdleExports() {
   const now = Date.now();
@@ -569,8 +582,8 @@ function stopExportSweep() {
    headless browser the server starts (export-jobs.js). */
 const cancellationStops = new Map();
 const exportJobs = createExportJobs({
-  storeDir: path.join(EXPORTS_DIR, "jobs"),
-  onCancel: id => { const stopped=[];for(const [key,sess] of exportSessions)if(sess.job===id)stopped.push(cleanupExport(key));cancellationStops.set(id,Promise.all(stopped)); },
+  storeDir: path.join(EXPORTS_DIR, "jobs"), dataRoot: DATA_DIR, artifactRoot: EXPORTS_DIR,
+  onCancel: id => { const stopped=[];for(const [key,sess] of exportSessions)if(sess.job===id)stopped.push(cleanupExport(key));cancellationStops.set(id,Promise.all(stopped).then(results=>{if(!results.length){const state=exportJobs.cleanupState(id);results.push({...state,cleanupConfirmed:state.cleanup.status==="complete",noSessions:true});}return results;})); },
   url: (id) => `http://localhost:${PORT}/?exportJob=${encodeURIComponent(id)}`,
   // a transcription's headless browser keeps its profile, so the speech model is downloaded once
   keepProfile: (kind) => kind === "transcribe" ? path.join(ANALYSIS_DIR, "browser-profile") : null,
@@ -1126,9 +1139,12 @@ const server = http.createServer(async (req, res) => {
     if (got === null) { sendJSON(res, 404, { error: "no such export job" }); return; }
     if(action === "/cancel") {
       const stops=await cancellationStops.get(id);cancellationStops.delete(id);
-      const encoderConfirmed=!stops||stops.every(value=>value.encoderConfirmed),cleanupConfirmed=!stops||stops.every(value=>value.cleanupConfirmed);
+      const state=exportJobs.cleanupState(id);
+      got=exportJobs.get(id);
+      const encoderConfirmed=state.encoderConfirmed&&(!stops||stops.every(value=>value.encoderConfirmed)),cleanupConfirmed=state.cleanup.status==="complete"&&(!stops||stops.every(value=>value.cleanupConfirmed));
+      if(!got.cleanup)got={...got,cleanup:state.cleanup};
       if(!encoderConfirmed||!cleanupConfirmed){sendJSON(res,409,{...got,encoderTermination:encoderConfirmed?"confirmed":"unconfirmed",cleanupConfirmed});return;}
-      got={...got,encoderTermination:stops?.length?"confirmed":"not-started",cleanupConfirmed};
+      got={...got,encoderTermination:state.encoderTermination,cleanupConfirmed};
     }
     sendJSON(res, 200, got);
     return;
@@ -1186,6 +1202,7 @@ const server = http.createServer(async (req, res) => {
       const mode = opts.mode === "annexb" ? "annexb" : "jpeg";
       if (mode !== "annexb" && opts.profile) resolveProfile(opts.profile); // 400, not 500, on a bad id — even without ffmpeg
       if (!HAS_FFMPEG) { sendJSON(res, 400, { error: "ffmpeg not found on PATH" }); return; }
+      if(opts.job&&exportJobs.get(opts.job)?.status!=="running"){sendJSON(res,409,{error:"original export job ended before encoder setup"});return;}
       const begun = await beginExport(opts.fps, opts.name, opts.profile, opts.hasAudio !== false, mode, opts);
       if (opts.job) {
         if (exportJobs.get(opts.job)?.status !== "running") {await cleanupExport(begun.id);sendJSON(res,409,{error:"original export job ended while encoder setup was pending"});return;}
@@ -1195,7 +1212,7 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       // an unusable profile is the caller's problem, not a server fault
       const bad = /^Unknown encoding profile|was rejected by ffmpeg|ffmpeg rejected these settings|at most \d+ outputs|deliveries is empty|render each frame rate separately|export fps required|export width\/height required/.test(e.message || "");
-      sendJSON(res, bad ? 400 : 500, { error: String(e.message || e) });
+      sendJSON(res, e.code===409?409:bad ? 400 : 500, { error: String(e.message || e) });
     }
     return;
   }
@@ -1205,6 +1222,7 @@ const server = http.createServer(async (req, res) => {
     if (!sess) { sendJSON(res, 404, { error: "no such export session" }); return; }
     try {
       const body = await readBody(req);
+      requireRunningSession(sess);
       if (!body || !body.length) throw new Error("empty frame");
       if (sess.hasAudio && !sess.wav) {
         sendJSON(res, 409, { error: "audio mix has not been uploaded yet" });
@@ -1212,17 +1230,19 @@ const server = http.createServer(async (req, res) => {
       }
       // queue behind any in-flight write so concurrent POSTs cannot interleave stdin
       const run = async () => {
+        requireRunningSession(sess);
         if (!sess.proc) sess.mode === "annexb" ? startAnnexbEncoder(sess) : startEncoder(sess);
         await (sess.outputs ? writeDeliveryFrame(sess, body) : writeExportFrame(sess, body));
       };
       const writeJob = sess.writeLock.then(run, run);
       sess.writeLock = writeJob.catch(() => {}); // keep the chain alive after a failed write
       await writeJob;
+      requireRunningSession(sess);
       touchExport(sess);
       sendJSON(res, 200, { ok: true });
     } catch (e) {
       cleanupExport(id);
-      sendJSON(res, 500, { error: String(e.message || e) });
+      sendJSON(res, e.code===409?409:500, { error: String(e.message || e) });
     }
     return;
   }
@@ -1230,20 +1250,24 @@ const server = http.createServer(async (req, res) => {
     const sess = exportSessions.get(url.searchParams.get("id"));
     if (!sess) { sendJSON(res, 404, { error: "no such export session" }); return; }
     try {
-      const wavPath = path.join(sess.dir, "audio.wav");
-      fs.writeFileSync(wavPath, await readBody(req));
+      const body=await readBody(req);requireRunningSession(sess);
+      const wavPath=sess.wav||sessionFile(sess,"audio.wav");
+      if(sess.job)exportJobs.writeArtifact(sess.job,sess.id,wavPath,body);else fs.writeFileSync(wavPath,body);
       // outputs that normalize loudness need the mix measured (loudnorm pass one) before ffmpeg starts
       const byTarget = new Map();
       for (const o of sess.outputs || []) {
         if (o.spec.audio.loudness == null || o.spec.audio.codec === "none") continue;
         const k = `${o.spec.audio.loudness}/${o.spec.audio.truePeak}`;
-        if (!byTarget.has(k)) byTarget.set(k, runFfmpeg(Delivery.LOUDNORM_ARGS(wavPath, o.spec), 10 * 60 * 1000).then((r) => Delivery.parseLoudnorm(r.stderr)));
-        o.loudnorm = await byTarget.get(k);
+        if (!byTarget.has(k)) byTarget.set(k, runFfmpeg(Delivery.LOUDNORM_ARGS(wavPath, o.spec), 10 * 60 * 1000,proc=>sess.preflightProcs.push(proc)).then((r) => Delivery.parseLoudnorm(r.stderr)));
+        const measured=await byTarget.get(k);
+        requireRunningSession(sess);
+        o.loudnorm=measured;
       }
+      requireRunningSession(sess);
       sess.wav = wavPath;
       touchExport(sess);
       sendJSON(res, 200, { ok: true });
-    } catch (e) { sendJSON(res, 500, { error: String(e) }); }
+    } catch (e) { sendJSON(res, e.code===409?409:500, { error: String(e) }); }
     return;
   }
   if (p === "/api/export/end" && req.method === "POST") {
@@ -1251,7 +1275,8 @@ const server = http.createServer(async (req, res) => {
     const sess = exportSessions.get(id);
     if (!sess) { sendJSON(res, 404, { error: "no such export session" }); return; }
     try {
-      if (url.searchParams.get("discard")) { cleanupExport(id); sendJSON(res, 200, { ok: true }); return; }
+      if (url.searchParams.get("discard")) {const cleanup=await cleanupExport(id);const ok=cleanup.encoderConfirmed&&cleanup.cleanupConfirmed;sendJSON(res,ok?200:409,{ok,...cleanup});return;}
+      requireRunningSession(sess);
       touchExport(sess); // keep alive through final mux
       if (!sess.proc) throw new Error("no frames were uploaded");
       if (sess.outputs) {
@@ -1261,6 +1286,7 @@ const server = http.createServer(async (req, res) => {
           if (!o.failed) {
             o.proc.stdin.end();
             const code = await o.done;
+            requireRunningSession(sess);
             if (code !== 0) o.failed = "ffmpeg encode failed: " + o.err();
           }
           if (o.failed) return { file, ok: false, error: o.failed };
@@ -1272,21 +1298,23 @@ const server = http.createServer(async (req, res) => {
           return { file, ok: true, src: "/exports/" + encodeURIComponent(file), ...(report ? { report } : {}),
             ...(o.loudnorm ? { mixLoudness: o.loudnorm.input_i } : {}) };
         }));
-        cleanupExport(id);
+        requireRunningSession(sess);
+        const cleanup=await cleanupExport(id);
         const ok = results.filter((x) => x.ok);
         if (!ok.length) throw new Error(results.map((x) => `${x.file}: ${x.error}`).join(" · "));
-        sendJSON(res, 200, { ok: true, src: ok[0].src, outputs: results });
+        sendJSON(res,cleanup.encoderConfirmed&&cleanup.cleanupConfirmed?200:409,{ok:cleanup.cleanupConfirmed,src:ok[0].src,outputs:results,...cleanup});
         return;
       }
       sess.proc.stdin.end();
       const code = await sess.done;
+      requireRunningSession(sess);
       if (code !== 0) throw new Error("ffmpeg encode failed: " + sess.err());
       const out = sess.outPath;
       fs.renameSync(sess.partPath, out);
       sess.partPath = null; // renamed — cleanup must not delete the finished file
-      cleanupExport(id);
-      sendJSON(res, 200, { ok: true, src: "/exports/" + encodeURIComponent(path.basename(out)) });
-    } catch (e) { cleanupExport(id); sendJSON(res, 500, { error: String(e) }); }
+      const cleanup=await cleanupExport(id);
+      sendJSON(res,cleanup.encoderConfirmed&&cleanup.cleanupConfirmed?200:409,{ok:cleanup.cleanupConfirmed,src:"/exports/"+encodeURIComponent(path.basename(out)),...cleanup});
+    } catch (e) { cleanupExport(id); sendJSON(res,e.code===409?409:500,{error:String(e)}); }
     return;
   }
 

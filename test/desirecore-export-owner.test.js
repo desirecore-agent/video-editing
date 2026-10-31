@@ -31,7 +31,7 @@ test('cancel while begin awaits preflight removes late session and encoding temp
 test('encoder stop confirms close even when the original child ignores TERM',async t=>{
  const {spawn}=require('node:child_process');
  const source=fs.readFileSync(path.join(__dirname,'../server.js'),'utf8');
- const start=source.indexOf('const encoderStops = new WeakMap();'),end=source.indexOf('function cleanupExport(id)',start);
+ const start=source.indexOf('const encoderStops = new WeakMap();'),end=source.indexOf('function cleanupExport(',start);
  const stop=new Function(source.slice(start,end)+';return stopEncoder;')();
  const child=spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});process.stdout.write("ready\\n");setInterval(()=>{},1000)'],{stdio:['pipe','pipe','ignore']});
  t.after(()=>{if(child.exitCode===null&&!child.signalCode)child.kill('SIGKILL');});

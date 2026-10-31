@@ -36,7 +36,13 @@ macOS/Linux ZIP 解压使用系统 `unzip`，Windows 使用系统 `tar.exe`；�
 
 ## 编辑与导出限制
 
-GUI、MCP 同源提交 projectId/baseRevision；冲突保留 UI 草稿。声明本地媒体在原 job 提交时逐文件复制冻结，动态 SVG/网络资源和 OS 字体仍未完整闭包。多帧率 aggregate 由全部组统一终结；取消只归属原编码会话，晚到 begin 仍需清理后返回。回执持久化，重启后原 ID 为 interrupted，不自动续跑。结果未知先查原 job；retry 明确创建新任务。
+GUI、MCP 同源提交 projectId/baseRevision；冲突保留 UI 草稿。声明本地媒体在原 job 提交时逐文件复制冻结，动态 SVG/网络资源和 OS 字体仍未完整闭包。多帧率 aggregate 由全部组统一终结；取消只归属原编码会话，晚到 begin 仍需清理后返回。回执持久化，重启后原 ID 为 interrupted，不自动续跑。原 job 的内部 `artifacts` 记录同一编码 session 的随机临时目录、音频、预检 probe 及 single/batch 排他预留的准确 part 路径；不按工程名、profile 或目录 glob 推断。创建意图先写入原回执，排他创建后将可用的非零 `dev` / `ino` / `birthtimeNs` 字符串身份或明确的未确认状态持久化，编码器才会使用路径。重启将原未完成 job 标为 interrupted，并对已登记身份做幂等清理；done 成片、输入快照、工程和未登记文件不在删除清单中。
+
+清理只处理本应用数据根的 exports 域：逐级核对父目录与文件身份、普通文件与单链接，拒绝软链、junction/reparse、越界和被替换文件；Windows 通过系统 PowerShell 的只读 `Get-Item -LiteralPath` 属性补核 Node Stats 没有暴露的 reparse 标记，查询失败即保留。恢复启动把所有待清条目的实际路径与父级放入同一只读属性批次，单次查询上限 1.5 秒；一次同步清理/创建/写入操作内复用该批属性观测，同时逐路径 fresh lstat、realpath 和身份核对，不跨 await 或后续操作缓存。实际 Windows listen/清理时延仍需真机验收。文件先删，目录只在为空时删除，不递归移除未知内容。运行中取消/失败先等待原 encoder 及预检进程实际 close，再走同一清理落点；终止未确认时保留产物。清理中的 Promise 与失败 session 保留在原 session Map，重复取消会等待/重试同一原清理，不能用 Map 暂空判定成功；已确认的 session close 记回同一 job 内部事实。迟到或排队帧、音频 loudnorm 等待结束后都重新核当前 session/job，不能在确认取消后重建 encoder/part 或迟到回复成功。
+
+`GET /api/export/job?id=<原ID>` 的 `cleanup` 汇总反映整个原 job：complete 为已登记产物均不再存在，pending 为仍有其它 session 的登记项，failed 为删除/身份/终止核验失败，unknown 为缺少可靠归属。失败项保留准确内部记录，后续重启可重验，不能用另一 session 成功覆盖失败。回执写入/rename 等 I/O 失败同样记为 failed 并返回未确认，不作为未处理 Promise rejection 终止服务；记录可能尚未写回磁盘时，不能把内存中的已删文件等同于已持久确认的完整清理。`cleanupConfirmed` 只在对应精确清理完成时为 true；没有内存 session 不能代替磁盘证据。
+
+创建文件系统条目与写入回执不是跨文件事务：若在排他创建后、身份持久化前崩溃，已有 intent 但身份未确认的条目保留并报告 unknown；零/缺失文件身份也不冒充 owned。exports 根身份必须可确认，缺失时新编码在创建前拒绝；已排他创建但单文件身份不可确认时，保留未确认记录并且恢复清理为 unknown，不承诺所有文件系统都能获得同等资格。旧版本回执没有准确产物事实时，同样保持 unknown，不倒填旧元数据或猜测清除旧 part。实际旧版本残留需在核对原证据及授权后单独处理，不将人工删除算作产品恢复成功。结果未知先查原 job；retry 明确创建新任务。
 
 GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 job 的冻结输入，不使用可变的当前编辑页。导出的 `where` 省略或为 `auto`、`headless` 时使用这一后台渲染器；显式 `tab` 在捕获快照前返回 409，其它无效值返回 400，不创建快照、作业或浏览器，也不更改工程和媒体。`auto` 不表示优先当前编辑页。此限制仅适用于导出；`fablecut_frame`、`fablecut_scopes`、跟踪和转录等工具各自的 `tab` 合同不变。
 

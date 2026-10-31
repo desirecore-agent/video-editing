@@ -21,7 +21,7 @@ node desirecore/start.js --data-dir /your/owned/application-data
 
 ## 编辑与导出合同
 
-[编辑手册](docs/editor-guide.md) 说明保留的时间线与 MCP API。保存比较工程身份与修订，冲突保留界面草稿。GUI Fast、原队列和 MCP 导出把已提交 JSON 与声明本地媒体快照交给原 job owner；多帧率分组完成不会提前结束 aggregate。回执重启后仍可读取为 interrupted，重试须明确发起；提交结果未知时先查原 job，不能自动重提。
+[编辑手册](docs/editor-guide.md) 说明保留的时间线与 MCP API。保存比较工程身份与修订，冲突保留界面草稿。GUI Fast、原队列和 MCP 导出把已提交 JSON 与声明本地媒体快照交给原 job owner；多帧率分组完成不会提前结束 aggregate。回执重启后仍可读取为 interrupted，重试须明确发起。同一 job 在编码前登记 session、预检、音频及 single/batch 排他预留的准确临时产物身份；重启只清理已确认登记项，保留已完成和无关文件，清理失败或归属不明（含旧回执和创建后身份未确认的窗口）均明确呈现，不猜测删除；提交结果未知时先查原 job，不能自动重提。
 
 声明且已解析的本地文件逐文件快照，不承诺跨独立文件系统的事务。动态 SVG 依赖、网络资源与 OS 字体没有完整冻结。可选 ASR、MediaPipe 和远程字体可能获取上游资源；应用不默认选择收费 Provider 或模型。原生 GUI 与各 OS 运行行为需要独立验收证据，CI 本身不能证明桌面验收。
 

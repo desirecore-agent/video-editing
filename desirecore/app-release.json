@@ -45,14 +45,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "16a3747b8aa0ede2e6edcec353823023476fef8e8c3dc36037ec7e9b6ef14f09",
-      "size": 4002,
+      "sha256": "d768dfdc3406d2f570ab456941b76d0d212fe4a8d631e3d1a93e9a1aaa8d7c99",
+      "size": 4346,
       "role": "documentation"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "f4d874ef1db19a9a547f2245064a56abdc1fb10f71ea4f2580cf29b5431cc6a6",
-      "size": 3406,
+      "sha256": "3113c2d051cce65ff111f921f9d971f3976594220c35d86aa8ea49099fd8335a",
+      "size": 3706,
       "role": "documentation"
     },
     {
@@ -129,8 +129,8 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "c2007e35b46336e494d4dc613a9d6146514db453b88a5c63d4c2b2e0c2b11a50",
-      "size": 8552,
+      "sha256": "c066c6ff90a2ccfcb19f1ab5e10d0eb1ba2cd77c7954331306bc9f1f46bfa1e9",
+      "size": 11719,
       "role": "documentation"
     },
     {
@@ -225,8 +225,8 @@
     },
     {
       "path": "encode-profiles.js",
-      "sha256": "2b4cf62390a3b30d3f7549dd79d051dcea66c0e1b83ef8bfeb770006bc3c410c",
-      "size": 12379,
+      "sha256": "1f019511a762a1cee1c480e484a46469f4377c809f98eefdb6bdc47b73f343a3",
+      "size": 12631,
       "role": "runtime"
     },
     {
@@ -237,8 +237,8 @@
     },
     {
       "path": "export-jobs.js",
-      "sha256": "9c6ac815c6656784e29996f2625d2084489744f3c260b307f75d78ea68760936",
-      "size": 11957,
+      "sha256": "a9f82f70908e0ddd5a08a0456007e9f03038ff9c85a62ae4cf70b48cffa445c4",
+      "size": 26005,
       "role": "runtime"
     },
     {
@@ -747,8 +747,8 @@
     },
     {
       "path": "server.js",
-      "sha256": "a824f1e900b911c91ebb3836dc79a94b6d19fd7d7c5eeba3e2fed1e39db8146e",
-      "size": 83858,
+      "sha256": "d9e0d117c1689c8b985a9a46d3ef57eb3f22ce79097f33a27d1fb5c8505ed909",
+      "size": 86978,
       "role": "runtime"
     },
     {
@@ -796,7 +796,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "aa2a280a42dbbb53466ce02104faaf31062c4e1421d457ec5c0cafa2fa01ed13"
+    "sha256": "8138c58add5e105fc054b8d96b7d55d5e9d004cee325aac3307518cec44cc35d"
   },
   "supportedPlatforms": [
     "darwin",
@@ -829,5 +829,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "b77c59917b3a040811fe90e293491815497ec3b6409b8546c985898baa87d01f"
+  "releaseDigest": "dbd944b12f4ed809882af9d561ee71743095d9c3efe19f406fc68387a02f979c"
 }
