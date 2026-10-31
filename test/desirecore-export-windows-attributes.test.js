@@ -91,7 +91,7 @@ function assertBatch(call, expected) {
   assert.equal(call.command, "powershell.exe");
   assert.deepEqual(call.args.slice(0, 3), ["-NoProfile", "-NonInteractive", "-Command"]);
   assert.equal(call.args.length, 4); assert.match(call.args[3], /Get-Item -LiteralPath/); assert.match(call.args[3], /ReparsePoint/);
-  assert.equal(call.options.timeout, 2500); assert.equal(call.options.encoding, "utf8"); assert.equal(call.options.windowsHide, true);
+  assert.equal(call.options.timeout, 5000); assert.equal(call.options.encoding, "utf8"); assert.equal(call.options.windowsHide, true);
   assert.equal(call.options.maxBuffer, 1024 * 1024); assert.equal(call.options.shell, undefined);
   assert.ok(Array.isArray(call.paths)); assert.equal(new Set(call.paths).size, call.paths.length, "one path appears only once in a batch");
   assert.deepEqual([...call.paths].sort(), [...expected].sort());

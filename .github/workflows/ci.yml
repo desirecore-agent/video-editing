@@ -79,16 +79,3 @@ jobs:
           node desirecore/cli.mjs setup-runtime
           node .github/scripts/runtime-smoke.js
       # Source hashes, logs and native archives remain on this run's local worker; no Actions artifacts.
-  windows-first-query-diagnostic:
-    name: Windows first-query diagnostic (not qualification)
-    needs: runtime
-    if: failure() && !cancelled()
-    runs-on: windows-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22'
-      - name: Observe first declared query on a fresh fixture (diagnostic only)
-        run: node .github/scripts/windows-attribute-first-query-diagnostic.js

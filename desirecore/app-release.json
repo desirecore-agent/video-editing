@@ -129,8 +129,8 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "c066c6ff90a2ccfcb19f1ab5e10d0eb1ba2cd77c7954331306bc9f1f46bfa1e9",
-      "size": 11719,
+      "sha256": "be3c6465833b3f02d5d446100cef4c7b77eb9096e5a4f35144683e3a057b5eba",
+      "size": 12128,
       "role": "documentation"
     },
     {
@@ -237,7 +237,7 @@
     },
     {
       "path": "export-jobs.js",
-      "sha256": "33d2e6e4d8b3ad28048372fb88310df56486e441c8b6162e963357b1c7a713aa",
+      "sha256": "c58889e4f6a407f2c233112c8ec24f745f2bc8ddf90a2b1a7d4d875917489636",
       "size": 26566,
       "role": "runtime"
     },
@@ -747,8 +747,8 @@
     },
     {
       "path": "server.js",
-      "sha256": "d9e0d117c1689c8b985a9a46d3ef57eb3f22ce79097f33a27d1fb5c8505ed909",
-      "size": 86978,
+      "sha256": "c371ccbc78376f482b5af7ee06285dcfb7627992dcccf701c2b38169a472f7d0",
+      "size": 87822,
       "role": "runtime"
     },
     {
@@ -796,7 +796,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "b595e69c98c926323a67fb2237679dc7ff182609d10b42c2d15d86b555f7f62b"
+    "sha256": "7e66109e193552ceea78dc600c5641459f3fe49dd237aa59e2ba1650b49a7c21"
   },
   "supportedPlatforms": [
     "darwin",
@@ -829,5 +829,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "9dcc73ade2c553b223fe447819afd074fd744a63b00afc8562e58897b3e07b57"
+  "releaseDigest": "053be31c5dd6428af470f9e8fe18cc1bf0f2a979bc8dc510c367759943dac775"
 }

@@ -581,15 +581,8 @@ function stopExportSweep() {
 /* Agent-requested exports: handed to an open editor tab over SSE, or to a
    headless browser the server starts (export-jobs.js). */
 const cancellationStops = new Map();
-const exportJobs = createExportJobs({
-  storeDir: path.join(EXPORTS_DIR, "jobs"), dataRoot: DATA_DIR, artifactRoot: EXPORTS_DIR,
-  onCancel: id => { const stopped=[];for(const [key,sess] of exportSessions)if(sess.job===id)stopped.push(cleanupExport(key));cancellationStops.set(id,Promise.all(stopped).then(results=>{if(!results.length){const state=exportJobs.cleanupState(id);results.push({...state,cleanupConfirmed:state.cleanup.status==="complete",noSessions:true});}return results;})); },
-  url: (id) => `http://localhost:${PORT}/?exportJob=${encodeURIComponent(id)}`,
-  // a transcription's headless browser keeps its profile, so the speech model is downloaded once
-  keepProfile: (kind) => kind === "transcribe" ? path.join(ANALYSIS_DIR, "browser-profile") : null,
-  broadcast,
-  editors: () => sseClients.size,
-});
+let exportJobs;
+let shuttingDown = false;
 
 /* Static file with HTTP Range support (required for <video> seeking) */
 function serveFile(req, res, filePath) {
@@ -630,6 +623,7 @@ const server = http.createServer(async (req, res) => {
     sendJSON(res, 403, { error: "forbidden: request must come from this machine (bad Host or Origin header)" });
     return;
   }
+  if (!exportJobs || shuttingDown) { sendJSON(res, 503, { error: "editor initialization is incomplete or the service is stopping" }); return; }
   // Compare the bound generation at the actual request boundary too: a service
   // can restart between the MCP probe and its subsequent mutation. These are
   // consistency fields, not a permission grant or a substitute for Host/Origin.
@@ -1549,6 +1543,31 @@ setInterval(() => {
 }, 60_000).unref();
 
 server.listen(PORT, HOST, () => {
+  if (shuttingDown) return;
+  // Bind before synchronous export recovery: the owner's identity request can
+  // connect and wait while initialization finishes, rather than exhausting
+  // connection-refused startup retries. No HTTP handler runs during this work.
+  try {
+    exportJobs = createExportJobs({
+      storeDir: path.join(EXPORTS_DIR, "jobs"), dataRoot: DATA_DIR, artifactRoot: EXPORTS_DIR,
+      onCancel: id => { const stopped=[];for(const [key,sess] of exportSessions)if(sess.job===id)stopped.push(cleanupExport(key));cancellationStops.set(id,Promise.all(stopped).then(results=>{if(!results.length){const state=exportJobs.cleanupState(id);results.push({...state,cleanupConfirmed:state.cleanup.status==="complete",noSessions:true});}return results;})); },
+      url: (id) => `http://localhost:${PORT}/?exportJob=${encodeURIComponent(id)}`,
+      // a transcription's headless browser keeps its profile, so the speech model is downloaded once
+      keepProfile: (kind) => kind === "transcribe" ? path.join(ANALYSIS_DIR, "browser-profile") : null,
+      broadcast,
+      editors: () => sseClients.size,
+    });
+  } catch (error) {
+    shuttingDown = true;
+    console.error("Video Editing export initialization failed:", error?.stack || error?.message || String(error));
+    snapshotCaptureAbort.abort();
+    stopExportSweep();
+    lease.release();
+    server.close(() => process.exit(1));
+    server.closeAllConnections();
+    setTimeout(() => process.exit(1), 1000).unref();
+    return;
+  }
   console.log(`\n  视频剪辑 running →  http://localhost:${PORT}\n`);
   if (!["127.0.0.1", "localhost", "::1"].includes(HOST))
     console.log(`  ⚠ WARNING: HOST=${HOST} exposes the editor (and its file APIs) to the network.\n`);
@@ -1564,14 +1583,13 @@ server.listen(PORT, HOST, () => {
   startExportSweep();
 });
 
-let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   snapshotCaptureAbort.abort();
   stopExportSweep();
   const cleanup=Promise.all([...exportSessions.keys()].map(id=>cleanupExport(id)));
-  exportJobs.shutdown();
+  exportJobs?.shutdown();
   cleanup.finally(()=>{lease.release();server.close(()=>process.exit(0));});
   setTimeout(()=>process.exit(0),5000).unref?.();
 }
