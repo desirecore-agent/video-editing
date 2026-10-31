@@ -61,6 +61,9 @@ jobs:
       - name: Exercise actual Windows PowerShell export ownership checks
         if: runner.os == 'Windows'
         run: node --test --test-concurrency=1 test/desirecore-export-windows-native.test.js
+      - name: Diagnose failed Windows attribute queries (read-only)
+        if: failure() && runner.os == 'Windows'
+        run: node .github/scripts/windows-attribute-diagnostic.js
       - name: Install declared Linux headless system libraries
         if: runner.os == 'Linux'
         run: |
