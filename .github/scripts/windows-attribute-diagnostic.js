@@ -31,7 +31,7 @@ function main() {
   if (production.split(originalRead).length !== 2) throw Error("Production JSON reader must have exactly one known occurrence");
   const candidate = production.replace(originalRead,
     "$encoded=($input | Out-String).Trim(); $paths=ConvertFrom-Json -InputObject ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded)));");
-  const root = fs.realpathSync(os.tmpdir()), missing = path.join(root, "video-editing-attrs-post-failure-" + crypto.randomUUID());
+  const root = fs.realpathSync(os.tmpdir()), missing = path.join(root, "video-editing-attrs-post-failure-属性-'[$]-" + crypto.randomUUID());
   if (!fs.lstatSync(root).isDirectory() || fs.existsSync(missing)) throw Error("Diagnostic requires one existing temporary root and one missing synthetic leaf");
   const paths = [root, missing], json = JSON.stringify(paths);
   emit({ kind: "scope", at: new Date().toISOString(), qualification: false, postFailure: true, originalColdTiming: false,
