@@ -82,7 +82,7 @@ function createExportJobs(opts) {
     // A missing literal containing [] can emit no item without an error in
     // PowerShell 5. It is unconfirmed, never a successful non-reparse result.
     const names=[...paths],script='$ErrorActionPreference="Stop"; [Console]::InputEncoding=[Text.Encoding]::UTF8; $paths=ConvertFrom-Json -InputObject ([Console]::In.ReadToEnd()); $result=@(foreach($p in $paths){try{$item=Get-Item -LiteralPath $p -Force -ErrorAction Stop; if($null -eq $item){-1}else{if($item -isnot [IO.FileSystemInfo] -or $null -eq $item.Attributes){throw "export artifact attributes are unconfirmed"}; $a=$item.Attributes; [int](($a -band [IO.FileAttributes]::ReparsePoint) -ne 0)}}catch{if($_.CategoryInfo.Category -eq "ObjectNotFound"){-1}else{throw}}}); [Console]::Write((ConvertTo-Json -InputObject $result -Compress))';
-    const probe=spawnSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",script],{input:JSON.stringify(names),encoding:"utf8",windowsHide:true,timeout:1500,maxBuffer:1024*1024});
+    const probe=spawnSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",script],{input:JSON.stringify(names),encoding:"utf8",windowsHide:true,timeout:2500,maxBuffer:1024*1024});
     if(probe.error||probe.status!==0)throw Error("export artifact reparse status is unsafe or unconfirmed");
     let flags;try{flags=JSON.parse(probe.stdout);}catch{throw Error("export artifact attribute batch is invalid");}
     if(!Array.isArray(flags)||flags.length!==names.length||flags.some(v=>![-1,0,1].includes(v)))throw Error("export artifact attribute batch is incomplete");
