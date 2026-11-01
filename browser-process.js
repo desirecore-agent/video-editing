@@ -4,7 +4,7 @@
    See desirecore/RUNTIME.md for the pinned upstream implementation and limits. */
 "use strict";
 const fs = require("fs");
-const { spawn } = require("child_process");
+const { spawn } = require("./native-process");
 
 const CLOSE_GRACE_MS = 3000;
 const KILL_GRACE_MS = 2000;

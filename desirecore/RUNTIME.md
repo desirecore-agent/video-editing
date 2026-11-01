@@ -1,6 +1,6 @@
 # 视频剪辑运行与数据合同
 
-产品名“视频剪辑”，版本 0.1.1。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
+产品名“视频剪辑”，版本 0.1.2。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
 
 ## 准备与启动
 
@@ -34,9 +34,11 @@ macOS/Linux ZIP 解压使用系统 `unzip`，Windows 使用系统 `tar.exe`；�
 
 正常停止原 owner 并确认无活动编码后，以已授权文件工具备份整个数据根（含工程索引、原媒体、工程 library 和回执），保留相对路径、文件摘要及外部媒体引用。缓存 `runtime/` 可排除但应保留材料版本和资产清单。独立系统盘上的原媒体不在数据根内，须一并备份；工程文件本身不包含它们。
 
-恢复时保持应用停止，把备份还原到新的独立数据根，核文件摘要、媒体引用和格式版本，再显式准备资产并由原 owner 启动。不得把旧 PID、URL、runtime proof、服务锁或旧审批当作当前授权。陈旧锁须核实际进程后由精确 owner 清理。先用测试工程验证读取、保存与导出，再继续编辑。0.1.1 只读写 `video-editing-home-v1`，没有自动迁移、降级或后台续渲染；格式不支持时保持原数据并明确失败。
+恢复时保持应用停止，把备份还原到新的独立数据根，核文件摘要、媒体引用和格式版本，再显式准备资产并由原 owner 启动。不得把旧 PID、URL、runtime proof、服务锁或旧审批当作当前授权。陈旧锁须核实际进程后由精确 owner 清理。先用测试工程验证读取、保存与导出，再继续编辑。0.1.2 只读写 `video-editing-home-v1`，没有自动迁移、降级或后台续渲染；格式不支持时保持原数据并明确失败。
 
 ## 编辑与导出限制
+
+Chrome、FFmpeg 和 ffprobe 的运行时进程创建共用 `native-process.js`：仅在 Windows 对调用方已解析的完整 drive/UNC 绝对可执行路径使用 Node `path.win32.toNamespacedPath`，避免同一已核文件因长路径表达被 CreateProcess 拒绝。已有 namespaced 路径保持幂等；裸命令仍按原 PATH 查找，drive-relative/root-relative 路径不擅自解析，媒体路径、URL、filter、参数、options、callback 与原 ChildProcess 归属均不改写。Darwin/Linux 原 executable 与调用参数原样转交。原 FFmpeg/ffprobe 的裸命令仍通过已准备目录前置 PATH 使用，不将 Node 内部 PATH 搜索结果冒作已做 namespace 转换；自定义绝对 FFmpeg 路径同样经过这一落点。此修复不修改系统 LongPathsEnabled、ACL、安装根或创建短路径别名；新版本的真实 Windows 导出和各 OS 受影响使用仍需单独验收。
 
 GUI、MCP 同源提交 projectId/baseRevision；冲突保留 UI 草稿。声明本地媒体在原 job 提交时逐文件复制冻结，动态 SVG/网络资源和 OS 字体仍未完整闭包。多帧率 aggregate 由全部组统一终结；取消只归属原编码会话，晚到 begin 仍需清理后返回。回执持久化，重启后原 ID 为 interrupted，不自动续跑。原 job 的内部 `artifacts` 记录同一编码 session 的随机临时目录、音频、预检 probe 及 single/batch 排他预留的准确 part 路径；不按工程名、profile 或目录 glob 推断。创建意图先写入原回执，排他创建后将可用的非零 `dev` / `ino` / `birthtimeNs` 字符串身份或明确的未确认状态持久化，编码器才会使用路径。重启将原未完成 job 标为 interrupted，并对已登记身份做幂等清理；done 成片、输入快照、工程和未登记文件不在删除清单中。
 

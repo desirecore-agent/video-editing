@@ -20,7 +20,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawn, spawnSync, execFile } = require("child_process");
+const { spawn, spawnSync, execFile } = require("./native-process");
 
 const { analyze, frame, frameGrid } = require("./analyze");
 const {

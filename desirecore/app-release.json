@@ -5,7 +5,7 @@
     "id": "0171a763-ad35-4b94-98b9-204782817b44",
     "name": "视频剪辑",
     "iconLetter": "剪",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "entrypoints": [
       {
         "id": "editor",
@@ -39,26 +39,26 @@
     },
     {
       "path": "NOTICE.md",
-      "sha256": "df68ebf3e40e49f53b9324a24062408329680d4c4252b949ef895b2c22ed4f75",
+      "sha256": "b79bde0f00378193ea9005abef04a5777f5857cf2c756f5362dc2c53e6912213",
       "size": 1513,
       "role": "license"
     },
     {
       "path": "README.md",
-      "sha256": "a683465ac7d87a2e98b445b2652bdb0f7f1e66f184a6ca8ed6ce1d8257260eed",
+      "sha256": "d09996b01d5378d0c91ea5e154170eb88bc11b199c7759ae417e0127054bb186",
       "size": 4346,
       "role": "documentation"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "479b8a6635b66810913aff5a4374a739a871cf0d1d9e3aca695901e69e86cea7",
+      "sha256": "267247fc99799e26d297d551768963167372531f4c7f3d77c556a4bab739bfc2",
       "size": 3706,
       "role": "documentation"
     },
     {
       "path": "analyze.js",
-      "sha256": "3fc6e712982c3fd9e74d1867fefb818a652f20de447f5e8afebf07944ea02f69",
-      "size": 17046,
+      "sha256": "72d38386fee6b75140096c35f9a56ccca57cccb4058e847b287d08c9a6040dc8",
+      "size": 17049,
       "role": "runtime"
     },
     {
@@ -81,8 +81,8 @@
     },
     {
       "path": "browser-process.js",
-      "sha256": "1495663d5a8786c216e3620e070b71b735bfb0d9c06a1fb9036c5d1c6f975a8d",
-      "size": 2738,
+      "sha256": "90cb24f8a455e707e161bebb0af95537bfce126f959470fdbbcf1b184cc12002",
+      "size": 2741,
       "role": "runtime"
     },
     {
@@ -117,8 +117,8 @@
     },
     {
       "path": "denoise.js",
-      "sha256": "75f0032ea832c79ea20cd84b7296f7ffa25b54a1d1108110fc6c3176fb1e4cc6",
-      "size": 6105,
+      "sha256": "d21b1693ff22daa6e3cdd4649a012278169f6ec718767d893f02a1d1594dcf69",
+      "size": 6108,
       "role": "runtime"
     },
     {
@@ -135,13 +135,13 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "ee431db052d2e9c99f43fc9a4e97ab7858f157012fc2b4adef04e1d9b656b4c4",
-      "size": 13647,
+      "sha256": "b10622c98758e2a30cd9cf6bf8d9f737676294327f211e191e4d1aacb2b73516",
+      "size": 14567,
       "role": "documentation"
     },
     {
       "path": "desirecore/cli.mjs",
-      "sha256": "722ab051ff21d782a309432e4c56e928fc62397eef3056a2f32a250acd6cc06c",
+      "sha256": "c6a0507b0fa40c15bac8d1ed727076f2d535e5a4ecf1ecfff7da975dcf5b1c0b",
       "size": 5136,
       "role": "runtime"
     },
@@ -213,8 +213,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "8cbada202064a39fa5fecef2e30da82e643f118b4d468528bfe4b2afcb1d1fb6",
-      "size": 181618,
+      "sha256": "3bcff76e34232aa7568d3322bdd063ce3864ccaaf10c9f954ec805976debc231",
+      "size": 182010,
       "role": "documentation"
     },
     {
@@ -231,8 +231,8 @@
     },
     {
       "path": "encode-profiles.js",
-      "sha256": "1f019511a762a1cee1c480e484a46469f4377c809f98eefdb6bdc47b73f343a3",
-      "size": 12631,
+      "sha256": "836369399f2f16c68c316dd7ed7f4c0e2f80c7ed3030fbcf07eb23440eaa4b0a",
+      "size": 12634,
       "role": "runtime"
     },
     {
@@ -297,8 +297,8 @@
     },
     {
       "path": "import-url.js",
-      "sha256": "d58c54079256fbedba7ba36fffb548089ca28e0170fb1da46bdbbc20800b0226",
-      "size": 11931,
+      "sha256": "923ffd3e531378dd2505d1dc371f18c4d067ed75bc051f84296ae12524b51774",
+      "size": 11934,
       "role": "runtime"
     },
     {
@@ -645,7 +645,7 @@
     },
     {
       "path": "manifest.json",
-      "sha256": "f7cd6175be5b4a9417a07c21969435074d23f2b84a324d8e84964bc1f8abd4d9",
+      "sha256": "4e10c839141a6d5bec512b90491f665c700a06b977c3d9466fa2821238c5e2ab",
       "size": 6357,
       "role": "runtime"
     },
@@ -657,8 +657,8 @@
     },
     {
       "path": "mcp-server.js",
-      "sha256": "c229886898a9c2cbe486d30e3c64c4e276fe8b5e8422cacdb6589a38d7cfbf18",
-      "size": 161768,
+      "sha256": "3ee6838a9d30605df680ef162d2993dbcba03031d17afed5253f33b034ae95fa",
+      "size": 161782,
       "role": "runtime"
     },
     {
@@ -669,8 +669,8 @@
     },
     {
       "path": "media-probe.js",
-      "sha256": "ec3ee44abbc1402bde74879ab54fa2ba988c9b1f3398b07ac9a240248d7ef400",
-      "size": 3447,
+      "sha256": "8556ac489dad359c98532ad874fe4b727f7b9ac507b5ca070b15f1b11e792edd",
+      "size": 3450,
       "role": "runtime"
     },
     {
@@ -692,14 +692,20 @@
       "role": "runtime"
     },
     {
+      "path": "native-process.js",
+      "sha256": "218ab3b9dd354831626b284cd4c8207ef9d401364d3cd64e82324b2b39ebfeda",
+      "size": 1106,
+      "role": "runtime"
+    },
+    {
       "path": "npm-shrinkwrap.json",
-      "sha256": "55a67624db066d5993116bb9a734d2fd31964417a4ddaec53e660c6e91c93cc8",
+      "sha256": "eb0cdd95100a0c9334be44587baed14dc1093257ee1db326b5d283a0f74d67a7",
       "size": 353,
       "role": "runtime"
     },
     {
       "path": "package.json",
-      "sha256": "d7d38abe150e75f80cc11e75b5eb2c987cb61304232dc2a78446f10b411ae952",
+      "sha256": "53169673d609a90a925ea74a9995c48686bd049e231825cafda61e65ce06d294",
       "size": 1678,
       "role": "dependency"
     },
@@ -729,8 +735,8 @@
     },
     {
       "path": "proxy.js",
-      "sha256": "acbfd5e9a4a937bf10d93511311eee86807d5aa4595e25c63982b9957ea43649",
-      "size": 8470,
+      "sha256": "ab8b0cf2cb8e3525158c6f33e9848f758f52a2d935a9285a7a9487aa7026b0ac",
+      "size": 8473,
       "role": "runtime"
     },
     {
@@ -753,8 +759,8 @@
     },
     {
       "path": "server.js",
-      "sha256": "c371ccbc78376f482b5af7ee06285dcfb7627992dcccf701c2b38169a472f7d0",
-      "size": 87822,
+      "sha256": "3d8934f6fce011f0cbfca243b75357b6bacaa64b71877f8009f0c9715aedcac0",
+      "size": 87825,
       "role": "runtime"
     },
     {
@@ -802,7 +808,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "c35e1a5ebb501874a616f9310cce75c86bc25bd709954f32ca5153c42b98f060"
+    "sha256": "c6d1f263d5e6131d7021ef08d62c5ac313cec2ae741190d21b2a770a2983aa8c"
   },
   "supportedPlatforms": [
     "darwin",
@@ -835,5 +841,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "e8a3051804f4003b5f2fce0efadd4c58c5c424e0e27ac0fba4b4ad800c3cbfca"
+  "releaseDigest": "2420b56a04eae0c2b33e7df73e24cf09df68d3f4abdff1d2e2ab0397aea50575"
 }

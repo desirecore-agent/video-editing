@@ -16,7 +16,8 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
-const { spawn, spawnSync } = require("child_process");
+const { spawn, spawnSync } = require("./native-process");
+const { spawn: spawnOwner } = require("child_process");
 const { loadEncodeProfiles, listProfilesPublic, resolveProfile, profileSummary } = require("./encode-profiles");
 
 const {
@@ -120,7 +121,7 @@ async function probeUIServer() {
 async function ensureUIServer() {
   if(await probeUIServer())return true;
   if(ManagedRuntime.managedClient() || process.env.FABLECUT_NO_AUTOSTART==="1")return false;
-  const owned=spawn(process.execPath,[path.join(ROOT,"server.js")],{cwd:ROOT,detached:false,stdio:"ignore",env:{...process.env,PORT:String(PORT)}});
+  const owned=spawnOwner(process.execPath,[path.join(ROOT,"server.js")],{cwd:ROOT,detached:false,stdio:"ignore",env:{...process.env,PORT:String(PORT)}});
   const closeOwned=()=>{try{owned.kill();}catch{}};
   process.once("exit",closeOwned);process.once("SIGTERM",()=>{closeOwned();process.exit(0);});process.once("SIGINT",()=>{closeOwned();process.exit(0);});
   for(let i=0;i<12;i++){await sleep(300);if(await probeUIServer())return true;}
@@ -751,7 +752,7 @@ function sampleFrames(file, c, w, h) {
     ? ["-v", "error", "-i", file, "-frames:v", "1", "-vf", `scale=${w}:${h}`, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
     : ["-v", "error", "-ss", String(Math.max(0, +c.in || 0)), "-t", String(len), "-i", file, "-an",
        "-vf", `fps=${R.SAMPLE_FPS},scale=${w}:${h}`, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"];
-  const r = require("child_process").spawnSync("ffmpeg", args, { maxBuffer: 1 << 29, timeout: Math.max(120000, len * 2000) });
+  const r = spawnSync("ffmpeg", args, { maxBuffer: 1 << 29, timeout: Math.max(120000, len * 2000) });
   if (r.error?.code === "ENOENT") throw new Error("ffmpeg not found on PATH — needed to look at the footage");
   if (r.error) throw new Error(`ffmpeg couldn't read ${c.id}: ${r.error.code === "ETIMEDOUT" ? "it took too long" : r.error.message}`);
   if (r.status !== 0) throw new Error(`ffmpeg couldn't read ${c.id}: ${String(r.stderr).trim().split("\n").pop()}`);
@@ -789,7 +790,7 @@ async function reframeTool(args) {
     if (!file) { skip.push({ id: c.id, why: "media file not found" }); continue; }
     let src = m.width > 0 && m.height > 0 ? { width: m.width, height: m.height } : null;
     if (!src) {
-      const pr = require("child_process").spawnSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", file], { timeout: 10000 });
+      const pr = spawnSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", file], { timeout: 10000 });
       const [w, h] = String(pr.stdout).trim().split(",").map(Number);
       if (w > 0 && h > 0) src = { width: w, height: h };
     }

@@ -23,7 +23,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn } = require("./native-process");
 
 const HEIGHTS = [540, 720, 1080];
 const DEFAULT_HEIGHT = 540;

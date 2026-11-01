@@ -2785,6 +2785,12 @@ finalizer and termination fallbacks from completing. Native browser
 process-tree shutdown still requires separate OS acceptance; see the
 [runtime lifecycle and cleanup limits](../desirecore/RUNTIME.md).
 
+Native media and browser calls share an executable-only adapter. Fully qualified
+Windows executables use Node's namespaced path spelling; bare command lookup,
+media paths, filters, arguments and options retain their original semantics.
+Darwin/Linux executable values pass through unchanged. Platform acceptance of
+a new fixed candidate remains separate from these call-boundary regressions.
+
 `fastExport.ownerJob` owns a group's encoding session; `fastExport.job` owns
 aggregate reporting. Mixed-fps groups retain the original aggregate owner and
 finish it only after all groups complete. Cancel joins an already-started

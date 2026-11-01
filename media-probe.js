@@ -10,7 +10,7 @@
    unprobed files never stalls the server's other requests. */
 "use strict";
 const fs = require("fs");
-const { execFile, spawnSync } = require("child_process");
+const { execFile, spawnSync } = require("./native-process");
 const MediaLib = require("./media-lib");
 
 const PROBE_CONCURRENCY = 4;
