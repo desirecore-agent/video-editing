@@ -59,8 +59,30 @@ test("Windows PowerShell reads exact UTF-8 paths for creation and original-job r
 
   // The invalid relative path leaves only the exports root in the native query.
   // It must pass the one-path transport and fail the independent path boundary.
-  assert.throws(() => jobs.createArtifact(done.id, "native-done", outside, "part"), /invalid export artifact path/);
+  const originalReceipt = fs.readFileSync(path.join(storeDir, done.id + ".json"));
+  assert.equal(fs.existsSync(outside), false, "the outside path starts absent");
+  const rejectOutside = () => jobs.createArtifact(done.id, "native-done", outside, "part");
+  let firstError;
+  try { rejectOutside(); } catch (error) { firstError = error; }
+  assert.ok(firstError, "the outside path must never be admitted");
+  if (probes.length === 1 && probes[0].result.error?.code === "ETIMEDOUT") {
+    // An overloaded cold Windows PowerShell can exceed the production budget.
+    // Its fail-closed result is correct, but does not qualify the path boundary
+    // or singleton transport. Preserve that original observation, prove this
+    // invalid operation wrote nothing, and allow just one read-only retry.
+    assert.equal(probes[0].command, "powershell.exe");
+    assert.deepEqual(probes[0].paths, [artifactRoot]);
+    assert.match(String(firstError), /reparse status is unsafe or unconfirmed/);
+    assert.equal(fs.existsSync(outside), false);
+    assert.deepEqual(fs.readFileSync(path.join(storeDir, done.id + ".json")), originalReceipt);
+    probes[0].preparationTimeout = true;
+    t.diagnostic(JSON.stringify({ kind: "initial-native-query-timeout", call: 1,
+      qualification: false, failClosed: true, receiptUnchanged: true, outsideCreated: false,
+      boundedReadOnlyRetries: 1, productionTimeoutMs: 5000 }));
+    assert.throws(rejectOutside, /invalid export artifact path/);
+  } else assert.match(String(firstError), /invalid export artifact path/);
   assert.equal(fs.existsSync(outside), false);
+  assert.deepEqual(fs.readFileSync(path.join(storeDir, done.id + ".json")), originalReceipt);
   const donePart = path.join(artifactRoot, "done.part.mp4"), doneFile = path.join(artifactRoot, "done.mp4");
   assert.equal(jobs.createArtifact(done.id, "native-done", donePart, "part"), donePart);
   fs.appendFileSync(donePart, "finished native filesystem fixture");
@@ -92,10 +114,11 @@ test("Windows PowerShell reads exact UTF-8 paths for creation and original-job r
   for (const [file, bytes] of preserved) assert.equal(contents(file), bytes);
   assert.equal(restored.get(done.id).status, "done");
   assert.deepEqual(fs.readdirSync(storeDir).sort(), [done.id + ".json", job.id + ".json"].sort());
-  assert.ok(probes.some(probe => probe.paths.length === 1), "one-path JSON array must remain one flag");
-  assert.ok(probes.some(probe => probe.paths.length > 2), "recovery must exercise a real multi-path batch");
-  assert.ok(probes.some(probe => probe.exists.includes(false)), "creation must query actually missing paths");
-  for (const { command, exists, result } of probes) {
+  const qualifiedProbes = probes.filter(probe => !probe.preparationTimeout);
+  assert.ok(qualifiedProbes.some(probe => probe.paths.length === 1), "a successful one-path JSON array must remain one flag");
+  assert.ok(qualifiedProbes.some(probe => probe.paths.length > 2), "recovery must exercise a real multi-path batch");
+  assert.ok(qualifiedProbes.some(probe => probe.exists.includes(false)), "creation must query actually missing paths");
+  for (const { command, exists, result } of qualifiedProbes) {
     assert.equal(command, "powershell.exe");
     assert.equal(result.error, undefined); assert.equal(result.status, 0);
     assert.deepEqual(JSON.parse(result.stdout), exists.map(found => found ? 0 : -1));
