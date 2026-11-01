@@ -2776,6 +2776,15 @@ client can still impose its own deadline. Restart preserves an unfinished origin
 automatic continuation or an original-ID retry. Persistent snapshots and
 completed files remain retained facts, separate from temporary encoder paths.
 
+The service exclusively owns each background browser's DevTools pipe. Closing
+that pipe, including the OS closing it when the service is killed, invokes the
+browser's own shutdown callback in the pinned Chromium source. Normal job
+completion removes a temporary profile only after the original browser closes;
+service exit, including a normal stop before that close, can prevent its profile
+finalizer and termination fallbacks from completing. Native browser
+process-tree shutdown still requires separate OS acceptance; see the
+[runtime lifecycle and cleanup limits](../desirecore/RUNTIME.md).
+
 `fastExport.ownerJob` owns a group's encoding session; `fastExport.job` owns
 aggregate reporting. Mixed-fps groups retain the original aggregate owner and
 finish it only after all groups complete. Cancel joins an already-started

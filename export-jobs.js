@@ -11,7 +11,8 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawn, spawnSync } = require("child_process");
+const { spawnSync } = require("child_process");
+const { createBrowserProcess } = require("./browser-process");
 
 const PENDING_TAB_MS = 20_000;       // an open tab answers SSE within a beat
 const PENDING_HEADLESS_MS = 90_000;  // a cold browser has to boot and load media
@@ -230,14 +231,7 @@ function createExportJobs(opts) {
     const b = j.browser;
     if (!b) return;
     j.browser = null;
-    try { b.proc.kill(); } catch {}
-    if (b.keep) return;
-    // The profile dir is locked until the browser exits.
-    const rm = (n) => fs.rm(b.profileDir, { recursive: true, force: true }, (err) => {
-      if (err && n > 0) setTimeout(() => rm(n - 1), 1000);
-    });
-    b.proc.once("exit", () => rm(5));
-    setTimeout(() => rm(5), 3000);
+    b.close();
   }
   function end(j, status, fields = {}) {
     if (isEnded(j)) return;
@@ -265,14 +259,15 @@ function createExportJobs(opts) {
     const kept = opts.keepProfile ? opts.keepProfile(j.kind) : null;
     if (kept) fs.mkdirSync(kept, { recursive: true });
     const profileDir = kept || fs.mkdtempSync(path.join(os.tmpdir(), "fablecut-export-"));
-    const proc = spawn(exe, [
+    const browser = createBrowserProcess(exe, [
       "--headless=new", `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check",
       "--disable-extensions", "--mute-audio", "--autoplay-policy=no-user-gesture-required",
       "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
       "--disable-backgrounding-occluded-windows", "--window-size=1600,900",
       opts.url(j.id),
-    ], { stdio: "ignore", windowsHide: true });
-    j.browser = { proc, profileDir, keep: !!kept };
+    ], { profileDir, keep: !!kept });
+    const { proc } = browser;
+    j.browser = browser;
     proc.on("error", (e) => end(j, "failed", { error: "could not start the headless browser: " + e.message }));
     proc.on("exit", () => { if (j.browser) { j.browser = null; if (!isEnded(j)) end(j, "failed", { error: "the headless browser exited before the export finished" }); } });
   }

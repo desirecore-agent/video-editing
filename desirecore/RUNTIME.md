@@ -1,6 +1,6 @@
 # 视频剪辑运行与数据合同
 
-产品名“视频剪辑”，版本 0.1.0。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
+产品名“视频剪辑”，版本 0.1.1。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
 
 ## 准备与启动
 
@@ -34,7 +34,7 @@ macOS/Linux ZIP 解压使用系统 `unzip`，Windows 使用系统 `tar.exe`；�
 
 正常停止原 owner 并确认无活动编码后，以已授权文件工具备份整个数据根（含工程索引、原媒体、工程 library 和回执），保留相对路径、文件摘要及外部媒体引用。缓存 `runtime/` 可排除但应保留材料版本和资产清单。独立系统盘上的原媒体不在数据根内，须一并备份；工程文件本身不包含它们。
 
-恢复时保持应用停止，把备份还原到新的独立数据根，核文件摘要、媒体引用和格式版本，再显式准备资产并由原 owner 启动。不得把旧 PID、URL、runtime proof、服务锁或旧审批当作当前授权。陈旧锁须核实际进程后由精确 owner 清理。先用测试工程验证读取、保存与导出，再继续编辑。0.1.0 只读写 `video-editing-home-v1`，没有自动迁移、降级或后台续渲染；格式不支持时保持原数据并明确失败。
+恢复时保持应用停止，把备份还原到新的独立数据根，核文件摘要、媒体引用和格式版本，再显式准备资产并由原 owner 启动。不得把旧 PID、URL、runtime proof、服务锁或旧审批当作当前授权。陈旧锁须核实际进程后由精确 owner 清理。先用测试工程验证读取、保存与导出，再继续编辑。0.1.1 只读写 `video-editing-home-v1`，没有自动迁移、降级或后台续渲染；格式不支持时保持原数据并明确失败。
 
 ## 编辑与导出限制
 
@@ -47,5 +47,9 @@ GUI、MCP 同源提交 projectId/baseRevision；冲突保留 UI 草稿。声明�
 创建文件系统条目与写入回执不是跨文件事务：若在排他创建后、身份持久化前崩溃，已有 intent 但身份未确认的条目保留并报告 unknown；零/缺失文件身份也不冒充 owned。exports 根身份必须可确认，缺失时新编码在创建前拒绝；已排他创建但单文件身份不可确认时，保留未确认记录并且恢复清理为 unknown，不承诺所有文件系统都能获得同等资格。旧版本回执没有准确产物事实时，同样保持 unknown，不倒填旧元数据或猜测清除旧 part。实际旧版本残留需在核对原证据及授权后单独处理，不将人工删除算作产品恢复成功。结果未知先查原 job；retry 明确创建新任务。
 
 GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 job 的冻结输入，不使用可变的当前编辑页。导出的 `where` 省略或为 `auto`、`headless` 时使用这一后台渲染器；显式 `tab` 在捕获快照前返回 409，其它无效值返回 400，不创建快照、作业或浏览器，也不更改工程和媒体。`auto` 不表示优先当前编辑页。此限制仅适用于导出；`fablecut_frame`、`fablecut_scopes`、跟踪和转录等工具各自的 `tab` 合同不变。
+
+后台浏览器由本服务独占 `--remote-debugging-pipe` 的父侧 FD3/FD4，不将父侧管道传给其它子进程。固定 Chromium 156.0.8078.80 的[管道实现](https://chromium.googlesource.com/chromium/src/+/156.0.8078.80/content/browser/devtools/devtools_pipe_handler.cc)在 EOF/error 时调用断联回调；[headless shell](https://chromium.googlesource.com/chromium/src/+/156.0.8078.80/headless/lib/browser/headless_devtools.cc)将该回调绑定到浏览器 Shutdown，普通 Chrome 绑定到 CloseBrowserSoon。服务被强杀时由 OS 关闭管道，无需重启后根据旧 PID 查杀。正常 job 收尾先关闭输入管道，让浏览器自行关闭；3 秒未退出才向仍存活的原 ChildProcess 发 TERM，再等 2 秒才发 KILL，已退出即取消兜底。兜底不等于后代已确认收闭；真实 Chrome 与各 OS 的完整进程树仍须单独验收，纯 Node 管道回归不能代替。
+
+正常收尾只在原浏览器确认 close 后删除本 job 的一次性 profile；转录的保留缓存不删。服务被强杀后无法执行自己的 profile 清理；正常服务停止也可能先于浏览器 close/finalizer 退出，此时不保证 profile 清理或 TERM/KILL 兜底完成，OS 仍会关闭管道。旧一次性 profile 可能留存；重启不扫描临时目录、猜测归属或按旧 PID 补删。此 profile 生命周期与原 job 的 `exports` 临时产物登记、恢复清理和 `cleanup` 回执分别处理，不将 profile 移除冒作编码产物已清理。
 
 原可选 Whisper ASR、MediaPipe、Google Fonts 仍可连接其上游外部资源，模型和动态网络资源不在本原生资产清单内；没有默认收费生成或隐含 Provider。旧 WebCodecs/MediaRecorder UI 实时输出未满足固定输入合同，明确不可用。

@@ -5,7 +5,7 @@
     "id": "0171a763-ad35-4b94-98b9-204782817b44",
     "name": "视频剪辑",
     "iconLetter": "剪",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "entrypoints": [
       {
         "id": "editor",
@@ -39,19 +39,19 @@
     },
     {
       "path": "NOTICE.md",
-      "sha256": "4d810c30934b0a691c00fe909b2b732afcdf8b9826d39594a89dcadf19da911e",
+      "sha256": "df68ebf3e40e49f53b9324a24062408329680d4c4252b949ef895b2c22ed4f75",
       "size": 1513,
       "role": "license"
     },
     {
       "path": "README.md",
-      "sha256": "d768dfdc3406d2f570ab456941b76d0d212fe4a8d631e3d1a93e9a1aaa8d7c99",
+      "sha256": "a683465ac7d87a2e98b445b2652bdb0f7f1e66f184a6ca8ed6ce1d8257260eed",
       "size": 4346,
       "role": "documentation"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "3113c2d051cce65ff111f921f9d971f3976594220c35d86aa8ea49099fd8335a",
+      "sha256": "479b8a6635b66810913aff5a4374a739a871cf0d1d9e3aca695901e69e86cea7",
       "size": 3706,
       "role": "documentation"
     },
@@ -77,6 +77,12 @@
       "path": "beats.js",
       "sha256": "acc31419efe9f9f3e6a2e84c849b10981822eb02ab59df2c98775f11dbe3e485",
       "size": 25687,
+      "role": "runtime"
+    },
+    {
+      "path": "browser-process.js",
+      "sha256": "1495663d5a8786c216e3620e070b71b735bfb0d9c06a1fb9036c5d1c6f975a8d",
+      "size": 2738,
       "role": "runtime"
     },
     {
@@ -129,13 +135,13 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "be3c6465833b3f02d5d446100cef4c7b77eb9096e5a4f35144683e3a057b5eba",
-      "size": 12128,
+      "sha256": "ee431db052d2e9c99f43fc9a4e97ab7858f157012fc2b4adef04e1d9b656b4c4",
+      "size": 13647,
       "role": "documentation"
     },
     {
       "path": "desirecore/cli.mjs",
-      "sha256": "9a278d57267f9749b971da8b5fab2464d22de30da25017a4c73f97b3ed1e2ed8",
+      "sha256": "722ab051ff21d782a309432e4c56e928fc62397eef3056a2f32a250acd6cc06c",
       "size": 5136,
       "role": "runtime"
     },
@@ -207,8 +213,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "d13b946f11456e62faa3e8cf2038ff304080cf81ce58b2370d64bb08572c1160",
-      "size": 181023,
+      "sha256": "8cbada202064a39fa5fecef2e30da82e643f118b4d468528bfe4b2afcb1d1fb6",
+      "size": 181618,
       "role": "documentation"
     },
     {
@@ -237,8 +243,8 @@
     },
     {
       "path": "export-jobs.js",
-      "sha256": "c58889e4f6a407f2c233112c8ec24f745f2bc8ddf90a2b1a7d4d875917489636",
-      "size": 26566,
+      "sha256": "636df0cb6d7d7586719b6eec622ecbeb681c85557532ab86deeb5639129a9aaa",
+      "size": 26303,
       "role": "runtime"
     },
     {
@@ -639,7 +645,7 @@
     },
     {
       "path": "manifest.json",
-      "sha256": "5f575bcd1cb7b0f98fd1458cdc1af33893d532aba21aeecb4c3e7357b45e1f44",
+      "sha256": "f7cd6175be5b4a9417a07c21969435074d23f2b84a324d8e84964bc1f8abd4d9",
       "size": 6357,
       "role": "runtime"
     },
@@ -687,13 +693,13 @@
     },
     {
       "path": "npm-shrinkwrap.json",
-      "sha256": "845cfb5a5f681cf66c937fc8a16401ac170919d9fc897b429d7b10f2bc6b6a52",
+      "sha256": "55a67624db066d5993116bb9a734d2fd31964417a4ddaec53e660c6e91c93cc8",
       "size": 353,
       "role": "runtime"
     },
     {
       "path": "package.json",
-      "sha256": "d6a9bc91783e1812bb8e357c84124fcfa25c66962f3c373887f7b02760e2148c",
+      "sha256": "d7d38abe150e75f80cc11e75b5eb2c987cb61304232dc2a78446f10b411ae952",
       "size": 1678,
       "role": "dependency"
     },
@@ -796,7 +802,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "7e66109e193552ceea78dc600c5641459f3fe49dd237aa59e2ba1650b49a7c21"
+    "sha256": "c35e1a5ebb501874a616f9310cce75c86bc25bd709954f32ca5153c42b98f060"
   },
   "supportedPlatforms": [
     "darwin",
@@ -829,5 +835,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "053be31c5dd6428af470f9e8fe18cc1bf0f2a979bc8dc510c367759943dac775"
+  "releaseDigest": "e8a3051804f4003b5f2fce0efadd4c58c5c424e0e27ac0fba4b4ad800c3cbfca"
 }

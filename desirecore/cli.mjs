@@ -8,7 +8,7 @@ const require=createRequire(import.meta.url);
 const ROOT=fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'));
 const ManagedRuntime=require('../managed-runtime.js');
 const {verifyFixedRelease}=require('./release.js');
-export const HELP=`视频剪辑 0.1.0
+export const HELP=`视频剪辑 0.1.1
 node desirecore/cli.mjs start --data-dir <owned application data>
 node desirecore/cli.mjs setup-runtime --data-dir <owned application data>
 node desirecore/cli.mjs status|identity|mcp --runtime-file <actual runtime response snapshot.json>
