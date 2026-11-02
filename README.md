@@ -29,4 +29,6 @@ Resolved declared local files are snapshotted file by file. This is not a transa
 
 `npm run test:delivery` checks packaging and runtime integrity boundaries; `npm run test:regression` runs the focused editing/export suite with bounded concurrency. CI runs static checks, the full upstream unit suite, package installation checks and explicit per-OS runtime preparation. The editor core has no npm runtime dependency.
 
-Version **0.1.2** is maintained in this fork. Upstream source is `61bf46babca82214c162c0650e47a81c3530982c` (1.18.0); original history and [MIT license](LICENSE) are retained. See [notices and dependency licenses](NOTICE.md). Upstream npm/MCP publication and Discord workflows are removed.
+Version **0.1.3** is maintained in this fork. Upstream source is `61bf46babca82214c162c0650e47a81c3530982c` (1.18.0); original history and [MIT license](LICENSE) are retained. See [notices and dependency licenses](NOTICE.md). Upstream npm/MCP publication and Discord workflows are removed.
+
+Pinned native assets use the concise `r2` cache revision. Windows preparation checks Chromium module and ICU path lengths before creating directories or downloading files; extended-length process paths alone do not remove Chromium's internal startup limit. Existing caches stay intact, and the new revision requires an explicit preparation with a fresh receipt.

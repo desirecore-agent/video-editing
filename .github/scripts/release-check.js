@@ -6,7 +6,7 @@ const ROOT=path.resolve(__dirname,"../.."),pkg=require(path.join(ROOT,"package.j
 function command(bin,args,opts={}){const r=spawnSync(bin,args,{cwd:ROOT,encoding:"utf8",windowsHide:true,...opts});if(r.error||r.status!==0)throw Error(bin+" failed: "+(r.error?.message||r.stderr||r.stdout));return r.stdout;}
 function inspect(dir,{installed=true}={}){
  const metadata=JSON.parse(fs.readFileSync(path.join(dir,"package.json"),"utf8"));
- if(metadata.name!=="@desirecore-agent/video-editing"||metadata.version!=="0.1.2"||metadata.private!==true||metadata.mcpName)throw Error("Fork metadata or publication boundary invalid");
+ if(metadata.name!=="@desirecore-agent/video-editing"||metadata.version!=="0.1.3"||metadata.private!==true||metadata.mcpName)throw Error("Fork metadata or publication boundary invalid");
  const required=["server.js","mcp-server.js","cli.js","managed-runtime.js","project-store.js","export-snapshot.js","docs/editor-guide.md","desirecore/cli.mjs","desirecore/start.js","desirecore/runtime-resolver.js","desirecore/setup-runtime.js","desirecore/runtime.schema.json","desirecore/runtime-file.schema.json","desirecore/runtime-assets.schema.json","desirecore/runtime-assets.json","desirecore/RUNTIME.md","AGENTS.md","NOTICE.md","LICENSE"];
  for(const p of required)if(!fs.statSync(path.join(dir,p)).isFile())throw Error("Installed runtime file missing: "+p);
  for(const p of [...(installed?["test","node_modules"]:[]),"CLAUDE.md","desirecore/POC.md",".mcp.json","server.json","glama.json"])if(fs.existsSync(path.join(dir,p)))throw Error("Non-runtime/upstream metadata leaked into package: "+p);

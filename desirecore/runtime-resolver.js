@@ -27,6 +27,14 @@ function assetsFor(platform=process.platform,arch=process.arch,manifest=JSON.par
  return{key,manifest,target};
 }
 function runtimeRoot(home,manifest) {return path.join(home,"runtime","video-editing-"+manifest.revision);}
+function assertRuntimePaths(root,target,key) {
+ if(!key.startsWith("win32-"))return;
+ // Chromium's module lookup and ICU startup still use MAX_PATH-sized buffers,
+ // including when CreateProcess accepts an extended-length executable spelling.
+ const chrome=path.win32.toNamespacedPath(path.win32.join(root,target.assets.find(a=>a.id==="chromium").executable));
+ const icu=path.win32.join(path.win32.dirname(chrome),"icudtl.dat");
+ if(Math.max(chrome.length,icu.length)>=260)throw Error("Windows browser runtime path exceeds Chromium's startup limit; choose a shorter application data root before preparing dependencies");
+}
 function fileRecord(root,relative) {
  const file=path.join(root,relative), stat=fs.lstatSync(file);
  if(stat.isSymbolicLink())return{path:relative,link:fs.readlinkSync(file)};
@@ -40,7 +48,9 @@ function collectFiles(root,relative="",out=[]) {
  }return out;
 }
 function checkedRuntime(home,options={}) {
- const {key,manifest,target}=assetsFor(options.platform,options.arch,options.manifest), root=runtimeRoot(home,manifest), receipt=JSON.parse(fs.readFileSync(path.join(root,"receipt.json"),"utf8"));
+ const {key,manifest,target}=assetsFor(options.platform,options.arch,options.manifest), root=runtimeRoot(home,manifest);
+ assertRuntimePaths(root,target,key);
+ const receipt=JSON.parse(fs.readFileSync(path.join(root,"receipt.json"),"utf8"));
  if(receipt.manifestDigest!==digest(JSON.stringify(manifest))||receipt.target!==key)throw Error("Runtime receipt does not match the pinned manifest and target");
  const actual=collectFiles(root);if(JSON.stringify(actual)!==JSON.stringify(receipt.files))throw Error("Runtime cache content changed; prepare a fresh verified runtime");
  const executable=name=>{const asset=target.assets.find(a=>a.id===name);const file=path.join(root,asset.executable);if(!fs.statSync(file).isFile())throw Error("Missing runtime executable: "+name);return file;};
@@ -73,6 +83,7 @@ async function extract(asset,archive,stage,platform) {
 }
 async function setupRuntime(home,options={}) {
  const {key,manifest,target}=assetsFor(options.platform,options.arch,options.manifest),root=runtimeRoot(home,manifest),platform=key.slice(0,key.lastIndexOf("-"));
+ assertRuntimePaths(root,target,key);
  fs.mkdirSync(path.dirname(root),{recursive:true,mode:0o700});
  if(fs.existsSync(root))return checkedRuntime(home,options);
  const lock=root+".prepare.lock";let fd;

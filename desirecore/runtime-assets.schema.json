@@ -18,7 +18,7 @@
     "revision": {
       "type": "string",
       "pattern": "^[A-Za-z0-9._-]+$",
-      "description": "Immutable cache namespace; bump when any asset changes."
+      "description": "Immutable, concise cache namespace; bump when the manifest changes. Keep asset versions and provenance in their pinned records so Windows Chromium module and ICU paths remain below MAX_PATH."
     },
     "node": {
       "type": "object",

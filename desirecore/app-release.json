@@ -5,7 +5,7 @@
     "id": "0171a763-ad35-4b94-98b9-204782817b44",
     "name": "视频剪辑",
     "iconLetter": "剪",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "entrypoints": [
       {
         "id": "editor",
@@ -39,20 +39,20 @@
     },
     {
       "path": "NOTICE.md",
-      "sha256": "b79bde0f00378193ea9005abef04a5777f5857cf2c756f5362dc2c53e6912213",
+      "sha256": "846ef7d6d407433ff897556e9ffde4449473ff0d9cc8b49242d1a68be4d9e1d0",
       "size": 1513,
       "role": "license"
     },
     {
       "path": "README.md",
-      "sha256": "d09996b01d5378d0c91ea5e154170eb88bc11b199c7759ae417e0127054bb186",
-      "size": 4346,
+      "sha256": "5da4a1b2f3c5747e1fcf16849a53e5eb764c359a3947e392af232216bd023f19",
+      "size": 4709,
       "role": "documentation"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "267247fc99799e26d297d551768963167372531f4c7f3d77c556a4bab739bfc2",
-      "size": 3706,
+      "sha256": "718e6ed8c60bfdecf8309439440da63ff4fc4299d2c2d0eba561025df0fb493b",
+      "size": 3998,
       "role": "documentation"
     },
     {
@@ -135,13 +135,13 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "b10622c98758e2a30cd9cf6bf8d9f737676294327f211e191e4d1aacb2b73516",
-      "size": 14567,
+      "sha256": "5ff8a254df44eea681fa704646243eecda5f4a7e4b2ab46869a9da6c48974023",
+      "size": 15098,
       "role": "documentation"
     },
     {
       "path": "desirecore/cli.mjs",
-      "sha256": "c6a0507b0fa40c15bac8d1ed727076f2d535e5a4ecf1ecfff7da975dcf5b1c0b",
+      "sha256": "fb65b4fa63018dec567e4dd5d4f6bd0ca62b8937265aa9728ac8a7d2c3afb96e",
       "size": 5136,
       "role": "runtime"
     },
@@ -165,14 +165,14 @@
     },
     {
       "path": "desirecore/runtime-assets.json",
-      "sha256": "fca02f85ae29f6c772b9fa6062bbb904c9329dbd85fdd814c46bb05f34a3033c",
-      "size": 15623,
+      "sha256": "c0616fa2d2f92049112828bc726b266d9005c12d95cbbb17138522a00044da00",
+      "size": 15596,
       "role": "runtime"
     },
     {
       "path": "desirecore/runtime-assets.schema.json",
-      "sha256": "a03655884962cde088200f04403c270baf4358f4d61bec7862b5eeb93ce74920",
-      "size": 4721,
+      "sha256": "7c2e5104afd55a2b13e4a9a68ca6feb64bafebc8b74623c3fbec1d6bcdbccac8",
+      "size": 4856,
       "role": "runtime"
     },
     {
@@ -189,8 +189,8 @@
     },
     {
       "path": "desirecore/runtime-resolver.js",
-      "sha256": "b0f8a5ff59cf21f2973d4776a2945ec736b5b9164c0f4baec0e2e4891d891c34",
-      "size": 8597,
+      "sha256": "49f35ab2868a86cbc8ae4b226e48b6a3732e0dc37d5697d2b10ceb87f59b68ee",
+      "size": 9306,
       "role": "runtime"
     },
     {
@@ -645,7 +645,7 @@
     },
     {
       "path": "manifest.json",
-      "sha256": "4e10c839141a6d5bec512b90491f665c700a06b977c3d9466fa2821238c5e2ab",
+      "sha256": "48b5457025907d26e1633f5a72706275f52d6b80e77f3a34e9231cc29dbaa8b9",
       "size": 6357,
       "role": "runtime"
     },
@@ -699,13 +699,13 @@
     },
     {
       "path": "npm-shrinkwrap.json",
-      "sha256": "eb0cdd95100a0c9334be44587baed14dc1093257ee1db326b5d283a0f74d67a7",
+      "sha256": "83dfaf83306671b2d38977a94a55c58ca8eb584f8d9899ff64f8f3e34702f746",
       "size": 353,
       "role": "runtime"
     },
     {
       "path": "package.json",
-      "sha256": "53169673d609a90a925ea74a9995c48686bd049e231825cafda61e65ce06d294",
+      "sha256": "a871076211a2ca59deeac97cf2e49bf7e2992eb6dc054afae1effc64b0f860a3",
       "size": 1678,
       "role": "dependency"
     },
@@ -808,7 +808,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "c6d1f263d5e6131d7021ef08d62c5ac313cec2ae741190d21b2a770a2983aa8c"
+    "sha256": "393a970799dca213d8d4844a03b527f01ba3bf9691ee958429b8a5e79d298bdc"
   },
   "supportedPlatforms": [
     "darwin",
@@ -841,5 +841,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "2420b56a04eae0c2b33e7df73e24cf09df68d3f4abdff1d2e2ab0397aea50575"
+  "releaseDigest": "205ca1f94ae71ce4b86984328ab9914d477fcc9428fd69c6dc5789f93de0e68b"
 }

@@ -29,4 +29,6 @@ node desirecore/start.js --data-dir /your/owned/application-data
 
 `npm run test:delivery` 检查打包与运行资产完整性；`npm run test:regression` 以受控并发执行编辑与导出范围回归。CI 执行静态检查、原上游单测、真实包安装与明确的各 OS 资产准备。编辑内核没有 npm 运行时依赖。
 
-本 fork 产品版本为 **0.1.2**。上游源为 `61bf46babca82214c162c0650e47a81c3530982c`（1.18.0），完整保留历史和 [MIT 许可](LICENSE)，详见[来源与第三方声明](NOTICE.md)。上游 npm/MCP 发布和 Discord 工作流已移除。
+本 fork 产品版本为 **0.1.3**。上游源为 `61bf46babca82214c162c0650e47a81c3530982c`（1.18.0），完整保留历史和 [MIT 许可](LICENSE)，详见[来源与第三方声明](NOTICE.md)。上游 npm/MCP 发布和 Discord 工作流已移除。
+
+固定原生资产使用简短的 `r2` 缓存修订。Windows 准备会在创建目录或下载前检查 Chromium 模块与 ICU 路径长度；进程创建使用长路径表达并不能解除浏览器内部的启动限制。旧缓存保留，新修订通过显式准备生成新的回执。

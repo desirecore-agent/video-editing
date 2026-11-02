@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "20261030-cft156-ffmpeg-b6.1.1",
+  "revision": "r2",
   "node": {
     "minimumMajor": 22,
     "supply": "desirecore-managed-path",

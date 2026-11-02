@@ -1,6 +1,6 @@
 # Source and third-party notices
 
-视频剪辑 0.1.2 is a DesireCore adaptation of [FableCut](https://github.com/ronak-create/FableCut), based on upstream commit `61bf46babca82214c162c0650e47a81c3530982c` (1.18.0). The original Git history, MIT license and copyright are preserved in `LICENSE`. The timeline, browser compositor, media/audio tools and MCP tool prefix remain upstream code; managed lifecycle, reliable saving/export receipts and host theme integration are adaptations maintained here.
+视频剪辑 0.1.3 is a DesireCore adaptation of [FableCut](https://github.com/ronak-create/FableCut), based on upstream commit `61bf46babca82214c162c0650e47a81c3530982c` (1.18.0). The original Git history, MIT license and copyright are preserved in `LICENSE`. The timeline, browser compositor, media/audio tools and MCP tool prefix remain upstream code; managed lifecycle, reliable saving/export receipts and host theme integration are adaptations maintained here.
 
 This fork is maintained at https://github.com/desirecore-agent/video-editing. It does not represent the upstream npm package, MCP Registry entry, Glama listing, website or Discord project. No publication to those services is configured.
 

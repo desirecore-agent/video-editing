@@ -1,6 +1,6 @@
 # 视频剪辑运行与数据合同
 
-产品名“视频剪辑”，版本 0.1.2。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
+产品名“视频剪辑”，版本 0.1.3。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
 
 ## 准备与启动
 
@@ -20,7 +20,7 @@
 
 FFmpeg/ffprobe 来自维护者 ffmpeg-static 的固定发布，按各目标的实际 README 和 LICENSE 记录版本与 source；同一发布 tag 不假设全平台同一 FFmpeg 版本。其 GPL 许可独立于编辑器 MIT。Chrome for Testing 使用 Google 官方固定版本 headless-shell archive，保留 `ABOUT` 与完整 `LICENSE.headless_shell` 第三方声明；CfT 元数据没有发布 SHA-256，因此清单里的 SHA 必须来自对对应固定 URL 完整原字节的核验，不能把 MD5/CRC 当作 SHA。
 
-准备位置为 `<data-root>/runtime/video-editing-<asset-revision>`。下载只写此根下的独占暂存区；逐档核 SHA 后解压，保存清单、完整许可和全部展开文件的 SHA 回执，成功才原子公布缓存。每次启动核对当前固定清单、目标及全部展开文件；准备失败不留下可启动的半份缓存。锁记录真实 PID，结果未知或旧锁须先检查，不自动接管活 owner。
+准备位置为 `<data-root>/runtime/video-editing-<asset-revision>`。当前固定资产使用简短缓存修订 `r2`，各档 URL、版本、完整 SHA 和许可保持不变。Windows Chromium 的模块定位与 ICU 初始化仍受 MAX_PATH 限制；名字空间化只能解决进程创建，不能解除其内部限制。准备和启动会先检查完整浏览器及 ICU 路径的 UTF-16 长度，超过上游限制时明确失败，准备不会创建目录、锁或发起下载。新修订通过正常 setup 生成新的完整回执；旧修订缓存保留，不能把旧回执复制到新目录。下载只写此根下的独占暂存区；逐档核 SHA 后解压，保存清单、完整许可和全部展开文件的 SHA 回执，成功才原子公布缓存。每次启动核对当前固定清单、目标及全部展开文件；准备失败不留下可启动的半份缓存。锁记录真实 PID，结果未知或旧锁须先检查，不自动接管活 owner。
 
 macOS/Linux ZIP 解压使用系统 `unzip`，Windows 使用系统 `tar.exe`；缺少时明确失败，应用不安装系统工具。Linux headless shell 还依赖官方 Chrome 所需的系统图形/字体库；真实发行环境应按系统包管理器满足这些依赖及浏览器 sandbox 前提。CI 的 native dependency fixture 仅核固定资产、版本及无头文档：Linux 一次性探测为适配 runner AppArmor 使用 `--no-sandbox`，明确记录 `appExportVerified:false`、`productionSandboxVerified:false`，不算生产导出或原生 GUI 验收，也不改变应用的生产启动参数。应用不自动运行 sudo、关闭系统权限或改变系统 sandbox。Node 本身保留平台运行时随附的完整许可。
 
@@ -34,7 +34,7 @@ macOS/Linux ZIP 解压使用系统 `unzip`，Windows 使用系统 `tar.exe`；�
 
 正常停止原 owner 并确认无活动编码后，以已授权文件工具备份整个数据根（含工程索引、原媒体、工程 library 和回执），保留相对路径、文件摘要及外部媒体引用。缓存 `runtime/` 可排除但应保留材料版本和资产清单。独立系统盘上的原媒体不在数据根内，须一并备份；工程文件本身不包含它们。
 
-恢复时保持应用停止，把备份还原到新的独立数据根，核文件摘要、媒体引用和格式版本，再显式准备资产并由原 owner 启动。不得把旧 PID、URL、runtime proof、服务锁或旧审批当作当前授权。陈旧锁须核实际进程后由精确 owner 清理。先用测试工程验证读取、保存与导出，再继续编辑。0.1.2 只读写 `video-editing-home-v1`，没有自动迁移、降级或后台续渲染；格式不支持时保持原数据并明确失败。
+恢复时保持应用停止，把备份还原到新的独立数据根，核文件摘要、媒体引用和格式版本，再显式准备资产并由原 owner 启动。不得把旧 PID、URL、runtime proof、服务锁或旧审批当作当前授权。陈旧锁须核实际进程后由精确 owner 清理。先用测试工程验证读取、保存与导出，再继续编辑。0.1.3 只读写 `video-editing-home-v1`，没有自动迁移、降级或后台续渲染；格式不支持时保持原数据并明确失败。
 
 ## 编辑与导出限制
 
