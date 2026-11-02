@@ -74,9 +74,9 @@ test("animated library SVGs stay drivable by the compositor clock", () => {
 });
 
 test("the documented starter SVGs still ship", () => {
-  // CLAUDE.md points authors at these by name as the worked examples.
+  // docs/editor-guide.md points authors at these by name as the worked examples.
   for (const named of ["sparkles.svg", "lower-third.svg", "confetti-burst.svg", "underline-swoosh.svg"]) {
-    assert.ok(svgFiles.includes(named), `CLAUDE.md cites library/svg/${named} but it is missing`);
+    assert.ok(svgFiles.includes(named), `docs/editor-guide.md cites library/svg/${named} but it is missing`);
   }
 });
 
@@ -136,10 +136,12 @@ test("library fonts can draw Latin text", () => {
 });
 
 test("shipped JSON files parse", () => {
-  const files = ["package.json", "manifest.json", "glama.json", "project.json"];
+  const files = ["package.json", "manifest.json", "desirecore/runtime-assets.json",
+    "desirecore/runtime-assets.schema.json", "desirecore/runtime.schema.json",
+    "desirecore/runtime-file.schema.json", "desirecore/runtime-provenance.json"];
+  if (fs.existsSync(path.join(ROOT, "project.json"))) files.push("project.json");
   for (const f of files) {
     const p = path.join(ROOT, f);
-    if (!fs.existsSync(p)) continue;   // optional files stay optional
     assert.doesNotThrow(() => JSON.parse(fs.readFileSync(p, "utf8")), `${f} is not valid JSON`);
   }
 });

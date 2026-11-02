@@ -1,0 +1,19 @@
+{
+  "name": "@desirecore-agent/video-editing",
+  "version": "0.1.3",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "@desirecore-agent/video-editing",
+      "version": "0.1.3",
+      "license": "MIT",
+      "bin": {
+        "fablecut": "cli.js"
+      },
+      "engines": {
+        "node": ">=22"
+      }
+    }
+  }
+}

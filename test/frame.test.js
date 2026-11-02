@@ -20,6 +20,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { makeDataDir, startServer, startMcp, rawGet } = require("./helpers");
+const managed = require("./fixtures/managed-runtime-env.cjs");
 
 /* CI runs without an install step by design (zero dependencies), so ffmpeg is
    usually absent there — these self-skip. They are worth adding ffmpeg for:
@@ -263,17 +264,21 @@ test("fablecut_frame returns an image the agent can look at", { skip: !hasFfmpeg
   assert.deepEqual(pong.result, {});
 });
 
-test("fablecut_frame without a path is a timeline render, and says so", async (t) => {
-  // No editor tab and no browser here: the request must fail with a readable
-  // reason rather than hanging or killing the server. FABLECUT_NO_AUTOSTART
-  // stops ensureUIServer from spawning a detached server.js the harness cannot
-  // stop (FABLECUT_NO_FS_WATCH only quiets the watcher inside server.js).
+test("fablecut_frame without a path refuses an unavailable timeline owner and stays responsive", async (t) => {
+  // Bind to this test's real owner, then stop it. The MCP must report the
+  // unavailable service before attempting a browser render or starting a new
+  // service under the old generation.
   const dir = makeDataDir(t);
-  const mcp = startMcp(t, dir, { FABLECUT_PORT: String(await freePort()), FABLECUT_NO_AUTOSTART: "1" });
+  const service = await startServer(t, dir, { ...NO_WATCH, ...managed.platform });
+  const owner = await (await fetch(service.base + "/api/desirecore/instance")).json();
+  await service.stop();
+  const mcp = startMcp(t, dir, { PORT: String(service.port), ...managed.client(owner) });
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const res = await mcp.callTool("fablecut_frame", { time: 1.5, where: "headless" });
   assert.equal(res.isError, true, res.text);
-  assert.match(res.text, /frame render failed|no reason|not running|timed out|never picked/);
+  assert.deepEqual(res.content, [{
+    type: "text", text: "Error: 受管视频剪辑服务不可用；请由原执行 owner 启动并刷新当前代际的 MCP 绑定",
+  }]);
   const pong = await mcp.request("ping", {});
   assert.deepEqual(pong.result, {});
 });
@@ -476,13 +481,3 @@ test("GET /api/frame is only reachable from this machine", async (t) => {
   const ok = await rawGet(port, "/api/frame?src=%2Fmedia%2Fx.mp4&t=0", { Host: `127.0.0.1:${port}` });
   assert.notEqual(ok.status, 403, "a local request must not be turned away by the host guard");
 });
-
-async function freePort() {
-  const net = require("node:net");
-  return new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.unref();
-    probe.on("error", reject);
-    probe.listen(0, "127.0.0.1", () => { const { port } = probe.address(); probe.close(() => resolve(port)); });
-  });
-}

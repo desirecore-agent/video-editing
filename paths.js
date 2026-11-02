@@ -4,16 +4,16 @@
    Two roots, because they have different lifetimes:
 
      APP_DIR   the checked-out code and the assets that ship with it. Read-only
-               in practice. When FableCut is installed as a Claude Code plugin
+               in practice. When 视频剪辑 is installed as a replaceable package
                this directory is pinned to a commit and REPLACED on every update.
 
      DATA_DIR  the user's work — project.json, imported media, exports, cached
                analysis. Must outlive an update.
 
    Standalone (`node server.js`) they are the same directory, which is exactly
-   how FableCut has always behaved. Set FABLECUT_DATA_DIR to split them; the
-   plugin sets it to ${CLAUDE_PLUGIN_DATA}. Installed from npm (the code sits
-   under node_modules, e.g. the npx cache) the default is ~/FableCut.
+   how 视频剪辑 has always behaved. Set FABLECUT_DATA_DIR to split them; the
+    legacy plugin sets it to ${CLAUDE_PLUGIN_DATA}. Installed from npm (the code
+    sits under node_modules) the standalone default is ~/video-editing.
    ═══════════════════════════════════════════════════════════════════════════ */
 "use strict";
 const crypto = require("crypto");
@@ -23,9 +23,10 @@ const path = require("path");
 
 const APP_DIR = __dirname;
 const FROM_NPM = APP_DIR.split(path.sep).includes("node_modules");
-const DATA_DIR = process.env.FABLECUT_DATA_DIR
-  ? path.resolve(process.env.FABLECUT_DATA_DIR)
-  : FROM_NPM ? path.join(os.homedir(), "FableCut") : APP_DIR;
+const runtimeDataDir = process.env.APP_DATA_DIR || process.env.APP_DATA_ROOT || process.env.FABLECUT_DATA_DIR;
+const DATA_DIR = runtimeDataDir
+  ? path.resolve(runtimeDataDir)
+  : FROM_NPM ? path.join(os.homedir(), "video-editing") : APP_DIR;
 const SPLIT = DATA_DIR !== APP_DIR;
 
 const MEDIA_DIR = path.join(DATA_DIR, "media");

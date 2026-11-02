@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Video Editing pinned native assets",
+  "description": "Explicit per-OS native assets; source material carries only this manifest and resolver. Preparation is a separately authorized owner action.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "revision",
+    "node",
+    "targets"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "description": "Native dependency manifest format."
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "description": "Immutable, concise cache namespace; bump when the manifest changes. Keep asset versions and provenance in their pinned records so Windows Chromium module and ICU paths remain below MAX_PATH."
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimumMajor",
+        "supply",
+        "source",
+        "license"
+      ],
+      "properties": {
+        "minimumMajor": {
+          "const": 22,
+          "description": "Existing managed Node runtime selected by the platform PATH."
+        },
+        "supply": {
+          "const": "desirecore-managed-path",
+          "description": "Reuse platform runtime; do not download or pin a developer absolute executable."
+        },
+        "source": {
+          "type": "string",
+          "description": "Node official source."
+        },
+        "license": {
+          "type": "string",
+          "description": "Node license and third-party notices distributed by platform runtime."
+        }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assets",
+          "requiredNotices"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "minItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "url",
+                "sha256",
+                "maxBytes",
+                "format",
+                "executable",
+                "license",
+                "source"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Stable native dependency or full notice identifier."
+                },
+                "url": {
+                  "type": "string",
+                  "pattern": "^https://",
+                  "description": "Fixed maintainer/official archive URL; no latest, credentials or machine paths."
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "description": "SHA-256 of the complete downloaded original bytes; checked before any extraction."
+                },
+                "maxBytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1073741824,
+                  "description": "Bound on download bytes to prevent unbounded disk consumption."
+                },
+                "format": {
+                  "enum": [
+                    "gzip",
+                    "zip",
+                    "text"
+                  ],
+                  "description": "Deterministic extraction method; text assets are complete upstream notices."
+                },
+                "executable": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Relative cache path to the executable or complete text notice after extraction."
+                },
+                "license": {
+                  "type": "string",
+                  "description": "Actual dependency license scope, separate from editor MIT."
+                },
+                "source": {
+                  "type": "string",
+                  "pattern": "^https://",
+                  "description": "Corresponding maintained source or source provenance page."
+                }
+              }
+            },
+            "description": "Native archives and full separate license/README texts, all pinned by original-byte SHA."
+          },
+          "requiredNotices": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Full archive license/notice files that must exist before the cache can be published."
+          }
+        }
+      },
+      "description": "Exact OS/architecture keys: darwin-arm64, darwin-x64, win32-x64, linux-x64 and linux-arm64."
+    }
+  }
+}

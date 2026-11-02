@@ -1,7 +1,7 @@
 {
-  "name": "fablecut",
-  "version": "1.18.0",
-  "description": "Zero-dependency browser video editor that AI agents can drive — JSON timeline, MCP server, REST API, live-reloading UI.",
+  "name": "@desirecore-agent/video-editing",
+  "version": "0.1.3",
+  "description": "视频剪辑 — DesireCore managed FableCut editor, compositor and MCP tools.",
   "main": "server.js",
   "bin": {
     "fablecut": "cli.js"
@@ -13,16 +13,34 @@
     "favicon.svg",
     "icons/",
     "encoding-profiles.json",
-    "CLAUDE.md",
+    "manifest.json",
+    "AGENTS.md",
+    "NOTICE.md",
+    "docs/editor-guide.md",
+    "desirecore/*.js",
+    "desirecore/*.json",
+    "desirecore/RUNTIME.md",
+    "desirecore/licenses/",
     "library/README.md",
     "library/elements/",
     "library/fonts/",
     "library/svg/",
-    "library/sfx/README.md"
+    "library/sfx/README.md",
+    "!desirecore/app-release.json",
+    "desirecore/*.mjs",
+    "desirecore-theme.css",
+    "README.md",
+    "README.zh-CN.md",
+    "npm-shrinkwrap.json"
   ],
   "scripts": {
-    "start": "node server.js",
-    "test": "node --test"
+    "start": "node desirecore/start.js",
+    "test": "node --test",
+    "setup-runtime": "node desirecore/setup-runtime.js",
+    "release:material": "node desirecore/release.js",
+    "check:delivery": "node .github/scripts/release-check.js",
+    "test:delivery": "node --test test/desirecore-delivery*.test.js",
+    "test:regression": "node --test --test-concurrency=2 test/projects.test.js test/mcp-edit-ops.test.js test/desirecore-*.test.js"
   },
   "keywords": [
     "video-editor",
@@ -36,12 +54,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ronak-create/FableCut.git"
+    "url": "https://github.com/desirecore-agent/video-editing.git"
   },
-  "homepage": "https://fablecut.space",
-  "mcpName": "io.github.ronak-create/fablecut",
+  "homepage": "https://github.com/desirecore-agent/video-editing",
   "license": "MIT",
   "engines": {
-    "node": ">=18"
-  }
+    "node": ">=22"
+  },
+  "private": true
 }

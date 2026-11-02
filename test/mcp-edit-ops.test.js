@@ -6,7 +6,8 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { makeDataDir, readProject, seedProject, startMcp } = require("./helpers");
+const { makeDataDir, readProject, seedProject, startMcp, startServer } = require("./helpers");
+const managed = require("./fixtures/managed-runtime-env.cjs");
 
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: expected ${b}, got ${a}`);
 
@@ -29,7 +30,9 @@ function reel(over = {}) {
 }
 const boot = async (t, project = reel()) => {
   const dir = makeDataDir(t, project);
-  const mcp = startMcp(t, dir);
+  const service = await startServer(t, dir, managed.platform);
+  const owner = await (await fetch(service.base+"/api/desirecore/instance")).json();
+  const mcp = startMcp(t, dir, { PORT:String(service.port), ...managed.client(owner) });
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   return { dir, mcp, patch, doc: () => readProject(dir), clip: (id) => readProject(dir).clips.find((c) => c.id === id) };

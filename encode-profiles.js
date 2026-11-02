@@ -22,7 +22,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn } = require("./native-process");
 
 const PROFILES_FILE = path.join(__dirname, "encoding-profiles.json");
 
@@ -250,9 +250,11 @@ const DRY_RUN_TIMEOUT_MS = 15_000;
    renders anything. Without this a typo (or an encoder this ffmpeg build lacks)
    would only surface when ffmpeg exits — i.e. after every frame was rendered.
    Async spawn so /api/export/begin does not block the event loop. */
-function dryRunProfile(profile, { fps = 30, hasAudio = true } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fablecut-dry-"));
-  const out = path.join(dir, `probe${profile.extension}`);
+function dryRunProfile(profile, { fps = 30, hasAudio = true, directory, outPath, onProcess } = {}) {
+  // A job caller supplies its already registered exact artifacts; ordinary
+  // standalone capability checks retain the original temporary-directory path.
+  const dir = directory || fs.mkdtempSync(path.join(os.tmpdir(), "fablecut-dry-"));
+  const out = outPath || path.join(dir, `probe${profile.extension}`);
   // 256×144: hardware encoders refuse tiny frames (NVENC's minimum is about
   // 145×49), and a profile that can't pass the dry run can never export.
   const args = ["-y", "-hide_banner", "-f", "lavfi",
@@ -268,11 +270,12 @@ function dryRunProfile(profile, { fps = 30, hasAudio = true } = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { }
+      if (!directory) try { fs.rmSync(dir, { recursive: true, force: true }); } catch { }
       resolve(result);
     };
     try {
       proc = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+      onProcess?.(proc);
     } catch (e) {
       finish({ ok: false, error: e.message || String(e) });
       return;

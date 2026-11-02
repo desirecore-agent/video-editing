@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   FableCut server — zero-dependency Node.js
+   视频剪辑 server — zero-dependency Node.js
    Run:  node server.js   →  http://localhost:7777
 
    Adds to the browser editor:
@@ -12,7 +12,7 @@
                                                     encoding-profiles.json)
 
    Automation: any tool (e.g. Claude Code) can edit project.json or drop files
-   into ./media — the browser UI reloads instantly. Schema: see CLAUDE.md.
+   into ./media — the browser UI reloads instantly. Schema: see docs/editor-guide.md.
    ═══════════════════════════════════════════════════════════════════════════ */
 "use strict";
 const http = require("http");
@@ -20,7 +20,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawn, spawnSync, execFile } = require("child_process");
+const { spawn, spawnSync, execFile } = require("./native-process");
 
 const { analyze, frame, frameGrid } = require("./analyze");
 const {
@@ -54,7 +54,12 @@ const { createHistory } = require("./history");
 /* Static app files are served from the install dir; everything the user creates
    lives under DATA_DIR. The two are the same unless FABLECUT_DATA_DIR is set. */
 const ROOT = APP_DIR;
-const PORT = process.env.PORT || 7777;
+const PORT = process.env.PORT || process.env.FABLECUT_PORT || 7777;
+const ProjectStore = require("./project-store");
+const snapshotCaptureAbort = new AbortController();
+const ExportSnapshot = require("./export-snapshot");
+const ManagedRuntime = require("./managed-runtime");
+const lease = ManagedRuntime.serviceLease(DATA_DIR, PORT);
 const HOST = process.env.HOST || "127.0.0.1";
 
 /* Requests must come from the local machine (or an explicitly allowed host).
@@ -119,6 +124,8 @@ if (!fs.existsSync(PROJECT_FILE)) {
 }
 
 /* ── SSE clients + file watching ── */
+// Stamp the open identity once before accepting requests. Thereafter all writes use this service.
+{ const initial=ProjectStore.read(PROJECT_FILE); const id=projects.activeId(); if(initial.projectId!==id){initial.projectId=id;ProjectStore.atomic(PROJECT_FILE,initial);} }
 const sseClients = new Set();
 function broadcast(event = "change", data = event) {
   const payload = `event: ${event}\ndata: ${data}\n\n`;
@@ -172,7 +179,7 @@ function readBody(req) {
 }
 /** Claim final + sibling `.part` paths with exclusive create (`wx`) so concurrent
  *  exports cannot pick the same free name before either file exists. */
-function reserveExportPaths(dir, baseName, ext) {
+function reserveExportPaths(dir, baseName, ext, job, sessionId) {
   const base = baseName.replace(/\.(mp4|mov|m4v|mkv|webm)$/i, "");
   let i = 0;
   for (;;) {
@@ -182,7 +189,8 @@ function reserveExportPaths(dir, baseName, ext) {
     const partPath = path.join(dir, stem + ".part" + ext);
     if (fs.existsSync(outPath)) continue;
     try {
-      fs.closeSync(fs.openSync(partPath, "wx")); // exclusive create — claim the name
+      if(job)exportJobs.createArtifact(job,sessionId,partPath,"part");
+      else fs.closeSync(fs.openSync(partPath, "wx")); // exclusive create — claim the name
     } catch (e) {
       if (e.code === "EEXIST") continue;
       throw e;
@@ -251,6 +259,20 @@ const COLOR_BSF = "h264_metadata=colour_primaries=1:transfer_characteristics=1:m
 const EXPORT_IDLE_MS = 10 * 60 * 1000; // abandon sessions with no successful activity
 const EXPORT_SWEEP_MS = 60 * 1000;
 let exportSweepTimer = null;
+function sessionDirectory(id,job) {
+  const dir=path.join(EXPORTS_DIR,"fablecut-"+id+"-"+crypto.randomUUID());
+  if(job)exportJobs.createArtifact(job,id,dir,"directory");else fs.mkdirSync(dir,{mode:0o700});
+  return dir;
+}
+function sessionFile(sess,name) {
+  const file=path.join(sess.dir,name);
+  if(sess.job)exportJobs.createArtifact(sess.job,sess.id,file,"temp-file");else fs.closeSync(fs.openSync(file,"wx"));
+  return file;
+}
+function requireRunningSession(sess) {
+  if(sess.closing||exportSessions.get(sess.id)!==sess||(sess.job&&exportJobs.get(sess.job)?.status!=="running"))
+    throw Object.assign(Error("original export job ended while encoder setup was pending"),{code:409});
+}
 function touchExport(sess) {
   if (sess) sess.lastTouch = Date.now();
 }
@@ -266,10 +288,11 @@ function attachProc(sess, proc) {
    test encode, because a build lists h264_nvenc / _qsv / _amf whether or not
    this machine has the GPU. Asked once, in the background, on first use. */
 let deliveryEncodersP = null;
-function runFfmpeg(args, timeout = 15000) {
+function runFfmpeg(args, timeout = 15000, onProcess) {
   return new Promise((resolve) => {
-    execFile("ffmpeg", args, { timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
+    const proc=execFile("ffmpeg", args, { timeout, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
       (err, stdout, stderr) => resolve({ code: err ? (err.code ?? 1) : 0, stdout: String(stdout || ""), stderr: String(stderr || "") }));
+    onProcess?.(proc);
   });
 }
 function deliveryEncoders() {
@@ -313,34 +336,29 @@ async function beginDeliveryExport(rate, name, hasAudio, extra) {
   const off = outs.map((o, i) => [o, i]).filter(([o]) => o.spec.fps != null && Math.abs(o.spec.fps - rate) > 0.01);
   if (off.length) throw new Error(off.map(([o, i]) => `output ${i + 1} asks for ${o.spec.fps} fps but this render is ${rate} fps`).join("; ") + " — render each frame rate separately");
   const input = outs.some((o) => Delivery.frameInput(o.spec) === "rgba") ? "rgba" : "jpeg";
-  // check every output on a 0.1 s synthetic canvas before the browser renders anything
-  const dryDir = fs.mkdtempSync(path.join(os.tmpdir(), "fablecut-dry-"));
-  try {
-    const dry = await Promise.all(outs.map((o, i) => runFfmpeg(Delivery.ffmpegArgs(o.spec, { fps: rate, input, canvasW, canvasH, frame: o.frame,
-      hasAudio, dry: true, outPath: path.join(dryDir, `probe${i}` + Delivery.CONTAINERS[o.spec.container].ext) }), 30000)));
-    const bad = dry.map((d, i) => [d, outs[i]]).filter(([d]) => d.code !== 0);
-    if (bad.length) {
-      throw new Error(bad.map(([d, o]) => {
-        const why = d.stderr.trim().split("\n").filter(Boolean).slice(-3).map((l) => l.trim()).join(" · ");
-        return `ffmpeg rejected these settings (${Delivery.describe(o.spec)}): ${why || "exit " + d.code}`;
-      }).join("\n"));
-    }
-  } finally { try { fs.rmSync(dryDir, { recursive: true, force: true }); } catch {} }
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const dir = fs.mkdtempSync(path.join(EXPORTS_DIR, "fablecut-"));
+  const dir=sessionDirectory(id,extra.job);
   const duration = Number.isFinite(+extra.duration) && +extra.duration > 0 ? +extra.duration : null;
-  for (const o of outs) {
-    const ext = Delivery.CONTAINERS[o.spec.container].ext;
-    Object.assign(o, reserveExportPaths(EXPORTS_DIR, safeName(o.name || "export"), ext), { proc: null, stderr: "", done: null, failed: null });
-    o.err = () => o.stderr.trim().split("\n").filter(Boolean).slice(-3).map((l) => l.trim()).join(" · ");
-  }
-  const sess = {
-    mode: "jpeg", proc: null, fps: rate, outputs: outs, input, canvasW, canvasH, duration,
-    hasAudio: !!hasAudio, dir, wav: null, partPath: null, outPath: null,
-    stderr: "", done: null, lastTouch: Date.now(), err: () => "",
-  };
-  sess.writeLock = Promise.resolve();
-  exportSessions.set(id, sess);
+  const sess={id,job:extra.job||null,mode:"jpeg",proc:null,fps:rate,outputs:outs,input,canvasW,canvasH,duration,
+    hasAudio:!!hasAudio,dir,wav:null,partPath:null,outPath:null,preflightProcs:[],stderr:"",done:null,lastTouch:Date.now(),err:()=>"",writeLock:Promise.resolve()};
+  exportSessions.set(id,sess);
+  try {
+    // Every preflight output belongs to the same durable job/session before ffmpeg writes it.
+    const probes=outs.map((o,i)=>sessionFile(sess,`probe${i}`+Delivery.CONTAINERS[o.spec.container].ext));
+    const dry = await Promise.all(outs.map((o,i)=>runFfmpeg(Delivery.ffmpegArgs(o.spec,{fps:rate,input,canvasW,canvasH,frame:o.frame,
+      hasAudio,dry:true,outPath:probes[i]}),30000,proc=>sess.preflightProcs.push(proc))));
+    requireRunningSession(sess);
+    const bad=dry.map((d,i)=>[d,outs[i]]).filter(([d])=>d.code!==0);
+    if(bad.length)throw Error(bad.map(([d,o])=>{
+      const why=d.stderr.trim().split("\n").filter(Boolean).slice(-3).map(l=>l.trim()).join(" · ");
+      return `ffmpeg rejected these settings (${Delivery.describe(o.spec)}): ${why||"exit "+d.code}`;
+    }).join("\n"));
+    for(const o of outs){
+      const ext=Delivery.CONTAINERS[o.spec.container].ext;
+      Object.assign(o,reserveExportPaths(EXPORTS_DIR,safeName(o.name||"export"),ext,sess.job,id),{proc:null,stderr:"",done:null,failed:null});
+      o.err=()=>o.stderr.trim().split("\n").filter(Boolean).slice(-3).map(l=>l.trim()).join(" · ");
+    }
+  }catch(e){await cleanupExport(id,sess);throw e;}
   const jpegQuality = Math.max(...outs.map((o) => Delivery.jpegQuality(o.spec)));
   const view = outs.map((o) => ({ file: path.basename(o.outPath), spec: o.spec, notes: o.notes, summary: Delivery.describe(o.spec), size: { w: o.frame.outW, h: o.frame.outH } }));
   // the single-output fields stay as they were for one delivery
@@ -410,41 +428,25 @@ async function beginExport(fps, name, profileId, hasAudio, mode, extra = {}) {
   if (m === "jpeg" && (extra.delivery || extra.deliveries)) return beginDeliveryExport(rate, name, hasAudio, extra);
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const safe = safeName(name || "export");
-  // Same filesystem as the finished file so renameSync(partPath, out) cannot EXDEV.
-  const dir = fs.mkdtempSync(path.join(EXPORTS_DIR, "fablecut-"));
-
-  if (m === "annexb") {
-    const { outPath, partPath } = reserveExportPaths(EXPORTS_DIR, safe, ".mp4");
-    const sess = {
-      mode: m, fps: rate, proc: null, dir,
-      name: safe, hasAudio: !!hasAudio,
-      wav: null, partPath, outPath,
-      stderr: "", done: null, lastTouch: Date.now(),
-      err: () => sess.stderr.trim().split("\n").filter(Boolean).slice(-3)
-        .map((l) => l.trim()).join(" · "),
-    };
-    sess.writeLock = Promise.resolve();
-    exportSessions.set(id, sess);
-    return { id, mode: m };
-  }
-
-  const profile = resolveProfile(profileId);
-  const dry = await dryRunProfile(profile, { fps: rate, hasAudio });
-  if (!dry.ok) throw new Error(`profile "${profile.id}" was rejected by ffmpeg: ${dry.error}`);
-  // Reserve the output name now (not at first frame) so concurrent exports
-  // cannot both see the same free path. The empty .part file is overwritten by ffmpeg (-y).
-  const { outPath, partPath } = reserveExportPaths(EXPORTS_DIR, safe, profile.extension);
-  const sess = {
-    mode: m, proc: null, fps: rate, profile, name: safe, hasAudio: !!hasAudio,
-    pixelFormat, width, height,
-    dir, wav: null, partPath, outPath,
-    stderr: "", done: null, lastTouch: Date.now(),
-    err: () => sess.stderr.trim().split("\n").filter(Boolean).slice(-3)
-      .map((l) => l.trim()).join(" · "),
-  };
-  sess.writeLock = Promise.resolve();
-  exportSessions.set(id, sess);
-  return { id, mode: m, profile: profile.id, label: profile.label, summary: profileSummary(profile) };
+  // Same filesystem as final output; the original job owns all temporary facts before writes.
+  const dir=sessionDirectory(id,extra.job);
+  const sess={id,job:extra.job||null,mode:m,proc:null,fps:rate,name:safe,hasAudio:!!hasAudio,pixelFormat,width,height,
+    dir,wav:null,partPath:null,outPath:null,preflightProcs:[],stderr:"",done:null,lastTouch:Date.now(),writeLock:Promise.resolve(),
+    err:()=>sess.stderr.trim().split("\n").filter(Boolean).slice(-3).map(l=>l.trim()).join(" · ")};
+  exportSessions.set(id,sess);
+  try {
+    if(m==="annexb") {
+      Object.assign(sess,reserveExportPaths(EXPORTS_DIR,safe,".mp4",sess.job,id));return{id,mode:m};
+    }
+    const profile=resolveProfile(profileId);
+    sess.profile=profile;
+    const probe=sessionFile(sess,"probe"+profile.extension);
+    const dry=await dryRunProfile(profile,{fps:rate,hasAudio,directory:dir,outPath:probe,onProcess:proc=>sess.preflightProcs.push(proc)});
+    requireRunningSession(sess);
+    if(!dry.ok)throw Error(`profile "${profile.id}" was rejected by ffmpeg: ${dry.error}`);
+    Object.assign(sess,{profile},reserveExportPaths(EXPORTS_DIR,safe,profile.extension,sess.job,id));
+    return{id,mode:m,profile:profile.id,label:profile.label,summary:profileSummary(profile)};
+  }catch(e){await cleanupExport(id,sess);throw e;}
 }
 /* Encode into the paths reserved at /begin; rename .part → final on clean exit
    so an aborted render never leaves something that looks like a finished file. */
@@ -515,17 +517,50 @@ function startAnnexbEncoder(sess) {
   attachProc(sess, spawn("ffmpeg", args, { stdio: ["pipe", "ignore", "pipe"] }));
   return sess.proc;
 }
-function cleanupExport(id) {
-  const s = exportSessions.get(id);
-  if (!s) return;
-  exportSessions.delete(id);
-  try { s.proc?.kill(); } catch {}
-  for (const o of s.outputs || []) {
-    try { o.proc?.kill(); } catch {}
-    if (o.partPath) try { fs.rmSync(o.partPath, { force: true }); } catch {}
-  }
-  try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch {}
-  if (s.partPath) try { fs.rmSync(s.partPath, { force: true }); } catch {}
+const encoderStops = new WeakMap();
+function stopEncoder(proc) {
+  if(!proc || proc.exitCode!==null || proc.signalCode) return Promise.resolve(true);
+  if(encoderStops.has(proc))return encoderStops.get(proc);
+  const stopped=new Promise(resolve=>{
+    let done=false;const finish=value=>{if(done)return;done=true;clearTimeout(escalate);clearTimeout(deadline);resolve(value);};
+    const escalate=setTimeout(()=>{if(proc.exitCode===null&&!proc.signalCode)try{proc.kill("SIGKILL");}catch{}},750);
+    const deadline=setTimeout(()=>finish(false),4000);
+    proc.once("close",()=>finish(true));
+    try{proc.stdin?.destroy();}catch{}
+    try{proc.kill("SIGTERM");}catch{}
+  });
+  encoderStops.set(proc,stopped);return stopped;
+}
+function cleanupExport(id,knownSession) {
+  const s=knownSession||exportSessions.get(id);
+  if(!s)return Promise.resolve({encoderConfirmed:false,cleanupConfirmed:false});
+  if(s.cleanupPromise)return s.cleanupPromise;
+  s.closing=true;
+  const stops=[stopEncoder(s.proc),...(s.outputs||[]).map(o=>stopEncoder(o.proc)),...(s.preflightProcs||[]).map(stopEncoder)];
+  // Join physical close before deleting any output/audio handle (required on Windows).
+  const work=Promise.all(stops).then(results=>{
+    const encoderConfirmed=results.every(Boolean);
+    if(!encoderConfirmed){if(s.job)exportJobs.cleanupArtifacts(s.job,id,false);return{encoderConfirmed:false,cleanupConfirmed:false};}
+    if(s.job){const cleanup=exportJobs.cleanupArtifacts(s.job,id);return{encoderConfirmed:true,cleanupConfirmed:cleanup.status==="complete",cleanup};}
+    // Raw non-job sessions retain their live owner; only exact known files and an empty directory.
+    let clean=true;const remove=file=>{if(file)try{fs.unlinkSync(file);}catch(e){if(e.code!=="ENOENT")clean=false;}};
+    for(const o of s.outputs||[])remove(o.partPath);remove(s.partPath);remove(s.wav);
+    for(const name of s.outputs? s.outputs.map((o,i)=>`probe${i}`+Delivery.CONTAINERS[o.spec.container].ext):s.profile?["probe"+s.profile.extension]:[])remove(path.join(s.dir,name));
+    try{fs.rmdirSync(s.dir);}catch(e){if(e.code!=="ENOENT")clean=false;}
+    return{encoderConfirmed:true,cleanupConfirmed:clean};
+  });
+  s.cleanupPromise=work.then(result=>{
+    s.cleanupPromise=null;
+    // Retain in-flight/failed original session facts. A later cancel must join
+    // the same work or retry its unconfirmed process, never assume absence=stop.
+    if(result.encoderConfirmed&&result.cleanupConfirmed&&exportSessions.get(id)===s)exportSessions.delete(id);
+    return result;
+  },error=>{
+    s.cleanupPromise=null;
+    if(s.job)exportJobs.cleanupArtifacts(s.job,id,false);
+    return{encoderConfirmed:false,cleanupConfirmed:false,error:"cleanup failed: "+String(error.code||error.message)};
+  });
+  return s.cleanupPromise;
 }
 function sweepIdleExports() {
   const now = Date.now();
@@ -545,13 +580,9 @@ function stopExportSweep() {
 
 /* Agent-requested exports: handed to an open editor tab over SSE, or to a
    headless browser the server starts (export-jobs.js). */
-const exportJobs = createExportJobs({
-  url: (id) => `http://localhost:${PORT}/?exportJob=${encodeURIComponent(id)}`,
-  // a transcription's headless browser keeps its profile, so the speech model is downloaded once
-  keepProfile: (kind) => kind === "transcribe" ? path.join(ANALYSIS_DIR, "browser-profile") : null,
-  broadcast,
-  editors: () => sseClients.size,
-});
+const cancellationStops = new Map();
+let exportJobs;
+let shuttingDown = false;
 
 /* Static file with HTTP Range support (required for <video> seeking) */
 function serveFile(req, res, filePath) {
@@ -592,10 +623,20 @@ const server = http.createServer(async (req, res) => {
     sendJSON(res, 403, { error: "forbidden: request must come from this machine (bad Host or Origin header)" });
     return;
   }
+  if (!exportJobs || shuttingDown) { sendJSON(res, 503, { error: "editor initialization is incomplete or the service is stopping" }); return; }
+  // Compare the bound generation at the actual request boundary too: a service
+  // can restart between the MCP probe and its subsequent mutation. These are
+  // consistency fields, not a permission grant or a substitute for Host/Origin.
+  try { ManagedRuntime.verifyRequest(lease.owner,req.headers); }
+  catch(e) { sendJSON(res,e.code || 409,{error:e.message});return; }
   const url = new URL(req.url, "http://localhost");
   const p = decodeURIComponent(url.pathname);
   // never serve dotfiles/dot-directories (.git, .gitignore, …)
   if (p.split(/[\\/]/).some((seg) => seg.startsWith("."))) { res.writeHead(403); res.end(); return; }
+
+  if (p === "/api/desirecore/runtime-identity") { const proof = ManagedRuntime.identity(); sendJSON(res, proof ? 200 : 404, proof || {error:"not a platform managed generation"}); return; }
+  if (p === "/api/desirecore/instance") { sendJSON(res, 200, lease.owner); return; }
+  if (p.startsWith("/api/export/snapshot/")) { const file = ExportSnapshot.resolveFile(DATA_DIR,p); if (!file) {res.writeHead(404);res.end();} else serveFile(req,res,file); return; }
 
   /* API: project */
   if (p === "/api/project" && req.method === "GET") {
@@ -651,6 +692,12 @@ const server = http.createServer(async (req, res) => {
     try { a = JSON.parse((await readBody(req)).toString("utf8") || "{}"); }
     catch { sendJSON(res, 400, { error: "body must be JSON {action, …}" }); return; }
     try {
+      if(a.action === "beforeAgent") {
+        const current=ProjectStore.read(PROJECT_FILE);
+        if(typeof a.projectId!=="string" || a.projectId!==current.projectId || a.revision!==current.revision || projects.peekActive()!==current.projectId){sendJSON(res,409,{error:"project identity/revision changed before history snapshot"});return;}
+        const version=history.beforeAgent(String(a.name||"Before agent edits").slice(0,160));
+        sendJSON(res,200,{ok:true,projectId:current.projectId,revision:current.revision,version});return;
+      }
       const out = history.act(a);
       if (a.action && a.action !== "list" && a.action !== "diff") broadcast("versions", JSON.stringify({ project: out.project, action: a.action }));
       const isOpen = out.project === projects.peekActive();
@@ -706,15 +753,17 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 409, { error: "another project is open now", revision: cur.revision || 0, project: open });
         return;
       }
-      if ((data.revision || 0) <= (cur.revision || 0) && url.searchParams.get("force") !== "1") {
+      if ((data.revision || 0) <= (cur.revision || 0) && url.searchParams.get("force") !== "1" && req.headers["x-fablecut-mutation-id"] !== cur._lastMutation?.id) {
         sendJSON(res, 409, { error: "stale revision — project changed since it was read", revision: cur.revision || 0 });
         return;
       }
-      const tmp = PROJECT_FILE + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-      fs.renameSync(tmp, PROJECT_FILE);
-      sendJSON(res, 200, { ok: true, revision: data.revision });
-    } catch (e) { sendJSON(res, 400, { error: String(e) }); }
+      const base = req.headers["x-fablecut-base-revision"];
+      const expected = base === undefined ? data.revision - 1 : Number(base);
+      const mutationId=req.headers["x-fablecut-mutation-id"];
+      if(mutationId && !/^[a-zA-Z0-9-]{8,80}$/.test(mutationId))throw new Error("invalid mutation id");
+      const committed=ProjectStore.commit(PROJECT_FILE,data,expected,{projectId:meant || data.projectId || cur.projectId,mutationId});
+      sendJSON(res, 200, { ok: true, ...committed });
+    } catch (e) { sendJSON(res, e.code === 409 ? 409 : 400, { error: String(e), revision: e.revision }); }
     return;
   }
 
@@ -957,10 +1006,23 @@ const server = http.createServer(async (req, res) => {
 
   /* API: agent-requested export jobs (see export-jobs.js).
      POST /api/export/request {range?, profile?, where?} → job; GET /api/export/job?id=
-     polls it; the editor tab claims, reports and finishes it. */
+     polls it; a dedicated frozen-input browser claims, reports and finishes it. */
   if (p === "/api/export/request" && req.method === "POST") {
     try {
       const opts = JSON.parse((await readBody(req)).toString("utf8") || "{}");
+      if (!opts || typeof opts !== "object" || Array.isArray(opts))
+        throw Object.assign(new Error("export request must be an object"), {code:400});
+      const where = opts.where === undefined ? "auto" : opts.where;
+      // A live editor uses mutable project/playhead state. Refuse that renderer
+      // before capture rather than silently replacing the caller's choice.
+      if (where === "tab")
+        throw Object.assign(new Error('where:"tab" is not supported for frozen snapshot exports; use where:"auto" or "headless"'), {code:409});
+      if (!["auto", "headless"].includes(where))
+        throw Object.assign(new Error('where must be "auto" or "headless" for frozen snapshot exports'), {code:400});
+      const admitted=ProjectStore.read(PROJECT_FILE);
+      if ((opts.projectId !== undefined && opts.projectId !== admitted.projectId) ||
+          (opts.revision !== undefined && opts.revision !== admitted.revision) || projects.peekActive() !== admitted.projectId)
+        throw Object.assign(new Error("project identity/revision changed before export; your draft is kept"), {code:409});
       if (!HAS_FFMPEG) { sendJSON(res, 400, { error: "ffmpeg not found on PATH — export needs it" }); return; }
       if (opts.profile) resolveProfile(String(opts.profile));
       if (opts.profile && (opts.preset || opts.delivery || opts.outputs)) { sendJSON(res, 400, { error: "pass a profile (raw ffmpeg args) or a preset / delivery spec / outputs, not both" }); return; }
@@ -969,8 +1031,7 @@ const server = http.createServer(async (req, res) => {
       if (opts.outputs) {
         let list = opts.outputs;
         if (list === true) {
-          let proj = {};
-          try { proj = JSON.parse(fs.readFileSync(PROJECT_FILE, "utf8").replace(/^\uFEFF/, "")); } catch {}
+          const proj = admitted;
           list = (Array.isArray(proj.outputs) ? proj.outputs : []).filter((o) => o && o.on !== false);
           if (!list.length) { sendJSON(res, 400, { error: "the project has no checked batch outputs — pass outputs:[{preset…}, …], or add some with setProject {outputs}" }); return; }
         }
@@ -991,13 +1052,25 @@ const server = http.createServer(async (req, res) => {
           { available: await deliveryEncoders(), presets: savedDeliveryPresets() });
         delivery = n.spec; notes = n.notes;
       }
-      let revision = null;
-      try { revision = JSON.parse(fs.readFileSync(PROJECT_FILE, "utf8").replace(/^\uFEFF/, "")).revision ?? null; } catch {}
-      const job = exportJobs.request({ range: opts.range, profile: opts.profile, delivery: deliveries ? null : delivery, deliveries, where: opts.where, revision });
+      const current=ProjectStore.read(PROJECT_FILE);
+      if(current.projectId!==admitted.projectId || current.revision!==admitted.revision || projects.peekActive()!==admitted.projectId)throw Object.assign(new Error("project changed during export admission; re-read and submit deliberately"),{code:409});
+      const snapshot = await ExportSnapshot.capture(DATA_DIR, admitted, {signal:snapshotCaptureAbort.signal});
+      let job;
+      try {
+        // Copying yields to the owner event loop. Admission must still name the
+        // same saved project after it completes; an edit/switch keeps its draft.
+        if (shuttingDown) throw Object.assign(new Error("editor service stopped during export admission"), {code:503});
+        const afterCapture=ProjectStore.read(PROJECT_FILE);
+        if(afterCapture.projectId!==admitted.projectId || afterCapture.revision!==admitted.revision || projects.peekActive()!==admitted.projectId)
+          throw Object.assign(new Error("project changed during export snapshot capture; re-read and submit deliberately"),{code:409});
+        // Both supported export modes render the frozen document independently;
+        // other job kinds retain their existing tab/headless selection.
+        job=exportJobs.request({ range: opts.range, profile: opts.profile, delivery: deliveries ? null : delivery, deliveries, where: "headless", revision: snapshot.receipt.projectRevision, snapshot });
+      } catch(e) { await ExportSnapshot.discard(DATA_DIR,snapshot.id); throw e; }
       sendJSON(res, 200, deliveries ? { ...job, delivery: `${deliveries.length} outputs from one render`, notes: outNotes }
         : delivery ? { ...job, delivery: Delivery.describe(delivery), notes } : job);
     } catch (e) {
-      const code = e.code === 409 || e.code === 400 ? e.code : /^Unknown encoding profile/.test(e.message || "") ? 400 : 500;
+      const code = [400,409,503].includes(e.code) ? e.code : /^Unknown encoding profile/.test(e.message || "") ? 400 : 500;
       sendJSON(res, code, { error: String(e.message || e) });
     }
     return;
@@ -1058,6 +1131,15 @@ const server = http.createServer(async (req, res) => {
     if (got === false) { sendJSON(res, 404, { error: "unknown export job endpoint" }); return; }
     if (got === undefined) { sendJSON(res, 409, { error: "job is not pending — another tab took it, or it ended" }); return; }
     if (got === null) { sendJSON(res, 404, { error: "no such export job" }); return; }
+    if(action === "/cancel") {
+      const stops=await cancellationStops.get(id);cancellationStops.delete(id);
+      const state=exportJobs.cleanupState(id);
+      got=exportJobs.get(id);
+      const encoderConfirmed=state.encoderConfirmed&&(!stops||stops.every(value=>value.encoderConfirmed)),cleanupConfirmed=state.cleanup.status==="complete"&&(!stops||stops.every(value=>value.cleanupConfirmed));
+      if(!got.cleanup)got={...got,cleanup:state.cleanup};
+      if(!encoderConfirmed||!cleanupConfirmed){sendJSON(res,409,{...got,encoderTermination:encoderConfirmed?"confirmed":"unconfirmed",cleanupConfirmed});return;}
+      got={...got,encoderTermination:state.encoderTermination,cleanupConfirmed};
+    }
     sendJSON(res, 200, got);
     return;
   }
@@ -1114,11 +1196,17 @@ const server = http.createServer(async (req, res) => {
       const mode = opts.mode === "annexb" ? "annexb" : "jpeg";
       if (mode !== "annexb" && opts.profile) resolveProfile(opts.profile); // 400, not 500, on a bad id — even without ffmpeg
       if (!HAS_FFMPEG) { sendJSON(res, 400, { error: "ffmpeg not found on PATH" }); return; }
-      sendJSON(res, 200, await beginExport(opts.fps, opts.name, opts.profile, opts.hasAudio !== false, mode, opts));
+      if(opts.job&&exportJobs.get(opts.job)?.status!=="running"){sendJSON(res,409,{error:"original export job ended before encoder setup"});return;}
+      const begun = await beginExport(opts.fps, opts.name, opts.profile, opts.hasAudio !== false, mode, opts);
+      if (opts.job) {
+        if (exportJobs.get(opts.job)?.status !== "running") {await cleanupExport(begun.id);sendJSON(res,409,{error:"original export job ended while encoder setup was pending"});return;}
+        exportSessions.get(begun.id).job = opts.job;
+      }
+      sendJSON(res, 200, begun);
     } catch (e) {
       // an unusable profile is the caller's problem, not a server fault
       const bad = /^Unknown encoding profile|was rejected by ffmpeg|ffmpeg rejected these settings|at most \d+ outputs|deliveries is empty|render each frame rate separately|export fps required|export width\/height required/.test(e.message || "");
-      sendJSON(res, bad ? 400 : 500, { error: String(e.message || e) });
+      sendJSON(res, e.code===409?409:bad ? 400 : 500, { error: String(e.message || e) });
     }
     return;
   }
@@ -1128,6 +1216,7 @@ const server = http.createServer(async (req, res) => {
     if (!sess) { sendJSON(res, 404, { error: "no such export session" }); return; }
     try {
       const body = await readBody(req);
+      requireRunningSession(sess);
       if (!body || !body.length) throw new Error("empty frame");
       if (sess.hasAudio && !sess.wav) {
         sendJSON(res, 409, { error: "audio mix has not been uploaded yet" });
@@ -1135,17 +1224,19 @@ const server = http.createServer(async (req, res) => {
       }
       // queue behind any in-flight write so concurrent POSTs cannot interleave stdin
       const run = async () => {
+        requireRunningSession(sess);
         if (!sess.proc) sess.mode === "annexb" ? startAnnexbEncoder(sess) : startEncoder(sess);
         await (sess.outputs ? writeDeliveryFrame(sess, body) : writeExportFrame(sess, body));
       };
       const writeJob = sess.writeLock.then(run, run);
       sess.writeLock = writeJob.catch(() => {}); // keep the chain alive after a failed write
       await writeJob;
+      requireRunningSession(sess);
       touchExport(sess);
       sendJSON(res, 200, { ok: true });
     } catch (e) {
       cleanupExport(id);
-      sendJSON(res, 500, { error: String(e.message || e) });
+      sendJSON(res, e.code===409?409:500, { error: String(e.message || e) });
     }
     return;
   }
@@ -1153,20 +1244,24 @@ const server = http.createServer(async (req, res) => {
     const sess = exportSessions.get(url.searchParams.get("id"));
     if (!sess) { sendJSON(res, 404, { error: "no such export session" }); return; }
     try {
-      const wavPath = path.join(sess.dir, "audio.wav");
-      fs.writeFileSync(wavPath, await readBody(req));
+      const body=await readBody(req);requireRunningSession(sess);
+      const wavPath=sess.wav||sessionFile(sess,"audio.wav");
+      if(sess.job)exportJobs.writeArtifact(sess.job,sess.id,wavPath,body);else fs.writeFileSync(wavPath,body);
       // outputs that normalize loudness need the mix measured (loudnorm pass one) before ffmpeg starts
       const byTarget = new Map();
       for (const o of sess.outputs || []) {
         if (o.spec.audio.loudness == null || o.spec.audio.codec === "none") continue;
         const k = `${o.spec.audio.loudness}/${o.spec.audio.truePeak}`;
-        if (!byTarget.has(k)) byTarget.set(k, runFfmpeg(Delivery.LOUDNORM_ARGS(wavPath, o.spec), 10 * 60 * 1000).then((r) => Delivery.parseLoudnorm(r.stderr)));
-        o.loudnorm = await byTarget.get(k);
+        if (!byTarget.has(k)) byTarget.set(k, runFfmpeg(Delivery.LOUDNORM_ARGS(wavPath, o.spec), 10 * 60 * 1000,proc=>sess.preflightProcs.push(proc)).then((r) => Delivery.parseLoudnorm(r.stderr)));
+        const measured=await byTarget.get(k);
+        requireRunningSession(sess);
+        o.loudnorm=measured;
       }
+      requireRunningSession(sess);
       sess.wav = wavPath;
       touchExport(sess);
       sendJSON(res, 200, { ok: true });
-    } catch (e) { sendJSON(res, 500, { error: String(e) }); }
+    } catch (e) { sendJSON(res, e.code===409?409:500, { error: String(e) }); }
     return;
   }
   if (p === "/api/export/end" && req.method === "POST") {
@@ -1174,7 +1269,8 @@ const server = http.createServer(async (req, res) => {
     const sess = exportSessions.get(id);
     if (!sess) { sendJSON(res, 404, { error: "no such export session" }); return; }
     try {
-      if (url.searchParams.get("discard")) { cleanupExport(id); sendJSON(res, 200, { ok: true }); return; }
+      if (url.searchParams.get("discard")) {const cleanup=await cleanupExport(id);const ok=cleanup.encoderConfirmed&&cleanup.cleanupConfirmed;sendJSON(res,ok?200:409,{ok,...cleanup});return;}
+      requireRunningSession(sess);
       touchExport(sess); // keep alive through final mux
       if (!sess.proc) throw new Error("no frames were uploaded");
       if (sess.outputs) {
@@ -1184,6 +1280,7 @@ const server = http.createServer(async (req, res) => {
           if (!o.failed) {
             o.proc.stdin.end();
             const code = await o.done;
+            requireRunningSession(sess);
             if (code !== 0) o.failed = "ffmpeg encode failed: " + o.err();
           }
           if (o.failed) return { file, ok: false, error: o.failed };
@@ -1195,21 +1292,23 @@ const server = http.createServer(async (req, res) => {
           return { file, ok: true, src: "/exports/" + encodeURIComponent(file), ...(report ? { report } : {}),
             ...(o.loudnorm ? { mixLoudness: o.loudnorm.input_i } : {}) };
         }));
-        cleanupExport(id);
+        requireRunningSession(sess);
+        const cleanup=await cleanupExport(id);
         const ok = results.filter((x) => x.ok);
         if (!ok.length) throw new Error(results.map((x) => `${x.file}: ${x.error}`).join(" · "));
-        sendJSON(res, 200, { ok: true, src: ok[0].src, outputs: results });
+        sendJSON(res,cleanup.encoderConfirmed&&cleanup.cleanupConfirmed?200:409,{ok:cleanup.cleanupConfirmed,src:ok[0].src,outputs:results,...cleanup});
         return;
       }
       sess.proc.stdin.end();
       const code = await sess.done;
+      requireRunningSession(sess);
       if (code !== 0) throw new Error("ffmpeg encode failed: " + sess.err());
       const out = sess.outPath;
       fs.renameSync(sess.partPath, out);
       sess.partPath = null; // renamed — cleanup must not delete the finished file
-      cleanupExport(id);
-      sendJSON(res, 200, { ok: true, src: "/exports/" + encodeURIComponent(path.basename(out)) });
-    } catch (e) { cleanupExport(id); sendJSON(res, 500, { error: String(e) }); }
+      const cleanup=await cleanupExport(id);
+      sendJSON(res,cleanup.encoderConfirmed&&cleanup.cleanupConfirmed?200:409,{ok:cleanup.cleanupConfirmed,src:"/exports/"+encodeURIComponent(path.basename(out)),...cleanup});
+    } catch (e) { cleanupExport(id); sendJSON(res,e.code===409?409:500,{error:String(e)}); }
     return;
   }
 
@@ -1444,7 +1543,32 @@ setInterval(() => {
 }, 60_000).unref();
 
 server.listen(PORT, HOST, () => {
-  console.log(`\n  FableCut running →  http://localhost:${PORT}\n`);
+  if (shuttingDown) return;
+  // Bind before synchronous export recovery: the owner's identity request can
+  // connect and wait while initialization finishes, rather than exhausting
+  // connection-refused startup retries. No HTTP handler runs during this work.
+  try {
+    exportJobs = createExportJobs({
+      storeDir: path.join(EXPORTS_DIR, "jobs"), dataRoot: DATA_DIR, artifactRoot: EXPORTS_DIR,
+      onCancel: id => { const stopped=[];for(const [key,sess] of exportSessions)if(sess.job===id)stopped.push(cleanupExport(key));cancellationStops.set(id,Promise.all(stopped).then(results=>{if(!results.length){const state=exportJobs.cleanupState(id);results.push({...state,cleanupConfirmed:state.cleanup.status==="complete",noSessions:true});}return results;})); },
+      url: (id) => `http://localhost:${PORT}/?exportJob=${encodeURIComponent(id)}`,
+      // a transcription's headless browser keeps its profile, so the speech model is downloaded once
+      keepProfile: (kind) => kind === "transcribe" ? path.join(ANALYSIS_DIR, "browser-profile") : null,
+      broadcast,
+      editors: () => sseClients.size,
+    });
+  } catch (error) {
+    shuttingDown = true;
+    console.error("Video Editing export initialization failed:", error?.stack || error?.message || String(error));
+    snapshotCaptureAbort.abort();
+    stopExportSweep();
+    lease.release();
+    server.close(() => process.exit(1));
+    server.closeAllConnections();
+    setTimeout(() => process.exit(1), 1000).unref();
+    return;
+  }
+  console.log(`\n  视频剪辑 running →  http://localhost:${PORT}\n`);
   if (!["127.0.0.1", "localhost", "::1"].includes(HOST))
     console.log(`  ⚠ WARNING: HOST=${HOST} exposes the editor (and its file APIs) to the network.\n`);
   console.log(`  project file : ${PROJECT_FILE}`);
@@ -1459,15 +1583,15 @@ server.listen(PORT, HOST, () => {
   startExportSweep();
 });
 
-let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  snapshotCaptureAbort.abort();
   stopExportSweep();
-  for (const id of [...exportSessions.keys()]) cleanupExport(id);
-  exportJobs.shutdown();
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 2000).unref?.();
+  const cleanup=Promise.all([...exportSessions.keys()].map(id=>cleanupExport(id)));
+  exportJobs?.shutdown();
+  cleanup.finally(()=>{lease.release();server.close(()=>process.exit(0));});
+  setTimeout(()=>process.exit(0),5000).unref?.();
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

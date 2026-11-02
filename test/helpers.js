@@ -1,6 +1,6 @@
 /* Shared harness for the FableCut test suite.
 
-   Every test runs against a throwaway FABLECUT_DATA_DIR and a private port, so
+   Every test runs against a throwaway data root and a private port, so
    the suite never touches the developer's real project.json or collides with an
    editor they already have open on 7777. Readiness is always established by
    polling for a real response — never by sleeping for a guessed interval. */
@@ -59,6 +59,7 @@ async function startServer(t, dataDir, extraEnv = {}) {
       env: {
         ...process.env, ...extraEnv,
         PORT: String(port), HOST: "127.0.0.1",
+        APP_DATA_DIR: dataDir, APP_DATA_ROOT: "",
         FABLECUT_DATA_DIR: dataDir,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -124,7 +125,13 @@ function rawGet(port, rawPath, headers = {}) {
 function startMcp(t, dataDir, env = {}) {
   const child = spawn(process.execPath, [path.join(ROOT, "mcp-server.js")], {
     cwd: ROOT,
-    env: { ...process.env, FABLECUT_DATA_DIR: dataDir, ...env },
+    env: {
+      ...process.env, ...env,
+      // APP_DATA_DIR also selects managed-client semantics. Keep raw
+      // standalone callers standalone; explicit managed fixtures use our root.
+      APP_DATA_DIR: env.FABLECUT_MANAGED === "1" ? dataDir : "",
+      APP_DATA_ROOT: "", FABLECUT_DATA_DIR: dataDir,
+    },
     stdio: ["pipe", "pipe", "pipe"],
   });
   const pending = new Map();
@@ -200,4 +207,21 @@ function startMcp(t, dataDir, env = {}) {
   return api;
 }
 
-module.exports = { ROOT, seedProject, makeDataDir, readProject, writeProject, startServer, startMcp, rawGet };
+/* Editing consumers need a private service owner, not MCP autostart on 7777:
+   concurrent test files otherwise race to attach to one another's data root.
+   The identity is read from the real service; these unit fixture fields are
+   consistency inputs, not platform authorization or native acceptance proof. */
+async function startManagedMcp(t, dataDir) {
+  const managed = require("./fixtures/managed-runtime-env.cjs");
+  const service = await startServer(t, dataDir, { ...managed.platform, FABLECUT_NO_FS_WATCH: "1" });
+  const response = await fetch(service.base + "/api/desirecore/instance");
+  assert.equal(response.status, 200, "the test service must publish its owner identity");
+  const owner = await response.json();
+  assert.equal(owner.managed, true);
+  assert.equal(owner.dataDir, fs.realpathSync(dataDir), "the owner must use this test's data root");
+  assert.equal(owner.port, service.port, "the owner must use this test's port");
+  assert.equal(owner.pid, service.child.pid, "the identity must belong to the child this test started");
+  return startMcp(t, dataDir, { PORT: String(service.port), ...managed.client(owner) });
+}
+
+module.exports = { ROOT, seedProject, makeDataDir, readProject, writeProject, startServer, startMcp, startManagedMcp, rawGet };

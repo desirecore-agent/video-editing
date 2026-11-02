@@ -6,7 +6,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const C = require("../comp.js");
 const M = require("../motion.js");
-const { makeDataDir, readProject, startMcp } = require("./helpers");
+const { makeDataDir, readProject, startManagedMcp } = require("./helpers");
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 const docWithComp = () => ({
@@ -116,7 +116,7 @@ const project = () => ({
 
 test("agent: addComp, inComp, precompose, updateComp, removeComp and the compact view", async (t) => {
   const dir = makeDataDir(t, project());
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const doc = () => readProject(dir);
@@ -189,6 +189,26 @@ test("agent: addComp, inComp, precompose, updateComp, removeComp and the compact
   assert.equal(r.isError, false, r.text);
   assert.deepEqual((({ id, name, width, height, duration }) => ({ id, name, width, height, duration }))(comp("extra")),
     { id: "extra", name: "extra", width: 1280, height: 720, duration: 2.1235 });
+
+  // Removing an unused comp commits through the same owner; restoring the
+  // saved version really undoes it, including every nested clip and setting.
+  const beforeRemove = doc();
+  const saved = await mcp.callTool("fablecut_versions", { action: "save", name: "Before comp removal" });
+  assert.equal(saved.isError, false, saved.text);
+  const version = saved.text.match(/^Saved v(\d+) /);
+  assert.ok(version, saved.text);
+  r = await patch({ op: "removeComp", id: "extra" });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(comp("extra"), undefined);
+  r = await mcp.callTool("fablecut_versions", { action: "restore", version: Number(version[1]) });
+  assert.equal(r.isError, false, r.text);
+  assert.deepEqual(doc(), { ...beforeRemove, revision: doc().revision });
+  assert.ok(doc().revision > beforeRemove.revision, "undo is a new committed revision");
+  const restored = await mcp.callTool("fablecut_get_project", { compact: true });
+  assert.equal(restored.isError, false, restored.text);
+  assert.match(restored.text, /COMPS \(3\)/);
+  assert.match(restored.text, /extra "extra" 1280x720 2\.1235s, 0 clips/);
+
   const twin = doc();
   twin.comps.push({ id: " extra", duration: 1, clips: [] });
   r = await mcp.callTool("fablecut_set_project", { project: twin, force: true });

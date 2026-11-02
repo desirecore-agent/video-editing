@@ -9,7 +9,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
-const { spawn, spawnSync } = require("child_process");
+const { spawn, spawnSync } = require("./native-process");
 
 /* nr: how far the noise is pulled down, dB. The floor is measured per file —
    afftdn's own noise tracking (tn) left loud hiss untouched in testing. */

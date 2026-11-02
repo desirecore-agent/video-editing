@@ -10,7 +10,7 @@ const dns = require("dns");
 const net = require("net");
 const fs = require("fs");
 const path = require("path");
-const { spawnSync, execFile } = require("child_process");
+const { spawnSync, execFile } = require("./native-process");
 
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
 const TIMEOUT_MS = 180_000;

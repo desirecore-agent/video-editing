@@ -51,17 +51,17 @@ test("initialize result carries the capabilities and serverInfo clients read", a
   const mcp = startMcp(t, makeDataDir(t));
   const { result } = await mcp.request("initialize", { protocolVersion: LATEST });
   assert.deepEqual(result.capabilities, { tools: {} });
-  assert.equal(result.serverInfo.name, "fablecut");
+  assert.equal(result.serverInfo.name, "video-editing");
   assert.match(result.serverInfo.version, /^\d+\.\d+\.\d+$/);
 });
 
-test("the advertised server version tracks package.json", async () => {
+test("the advertised server version tracks package.json", async (t) => {
   // Drift here means clients report a version the release does not match.
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
-  const src = fs.readFileSync(path.join(ROOT, "mcp-server.js"), "utf8");
-  const declared = (src.match(/serverInfo:\s*\{[^}]*version:\s*"([^"]+)"/) || [])[1];
-  assert.equal(declared, pkg.version,
-    "mcp-server.js serverInfo.version and package.json version must be bumped together");
+  const mcp = startMcp(t, makeDataDir(t));
+  const {result} = await mcp.request("initialize", {protocolVersion:LATEST});
+  assert.equal(result.serverInfo.version, pkg.version,
+    "the actual MCP handshake must advertise the installed package version");
 });
 
 test("tools/list advertises well-formed tools", async (t) => {

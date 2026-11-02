@@ -77,7 +77,7 @@ test("stored tracks: validation, lookup between samples, re-basing on trims, sim
   assert.match(T.describe(list), /^"Logo" box 0\.00–2\.00 s \(3 samples\)$/);
 });
 
-const { makeDataDir, readProject, seedProject, startMcp } = require("./helpers");
+const { makeDataDir, readProject, seedProject, startManagedMcp } = require("./helpers");
 
 test("agents: tracks are validated on updateClip, summarized in the compact view, removed with removeTrack; fablecut_track checks its input", async (t) => {
   const dir = makeDataDir(t, seedProject({
@@ -87,7 +87,7 @@ test("agents: tracks are validated on updateClip, summarized in the compact view
       { id: "c_txt", mediaId: null, kind: "text", track: "V2", start: 0, duration: 5, props: { text: "Hi" } },
     ],
   }));
-  const mcp = startMcp(t, dir);
+  const mcp = await startManagedMcp(t, dir);
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const patch = (...ops) => mcp.callTool("fablecut_patch_project", { ops });
   const samples = Array.from({ length: 40 }, (_, i) => [i / 30, 0.3 + i * 0.005, 0.5, 1, 0, 0.97]);

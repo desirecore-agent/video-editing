@@ -1,22 +1,31 @@
-# FableCut — browser video editor, drivable by Claude Code
+# 视频剪辑 — browser video editor with a shared GUI/MCP project owner
 
 A production-style non-linear video editor (Premiere-style) that runs in the
-browser. An AI agent edits videos by **editing `project.json`** (or calling the
-REST API / MCP tools) — the open browser UI live-reloads within ~150 ms via SSE.
+browser. An AI agent edits through the **service-owned REST API / MCP tools**;
+the open browser UI live-reloads via SSE. The editor and compositor derive from
+FableCut, with its original MIT attribution retained.
 No build step, no npm dependencies.
 
 **This file is the master manual.** Any model pointed at this document (or at
 the `fablecut_docs` MCP tool, which returns it) has everything needed to fully
 drive the editor.
 
-## MCP connection (preferred — works from any session, any directory)
+## MCP connection
 
-Register the MCP server once at user scope as `fablecut`:
-`claude mcp add -s user fablecut -- npx -y fablecut mcp` (from npm, no path needed),
-or from a clone `claude mcp add -s user fablecut -- node "<path-to>/fablecut/mcp-server.js"`.
-Every Claude Code session then has these tools:
+**Default: the DesireCore managed installation.** Use the installed 视频剪辑
+application and its original runtime owner. After startup, configure the stdio MCP entry through
+`node desirecore/cli.mjs mcp --runtime-file <actual owner response snapshot>`.
+The prepared Node executable, service port, data root and runtime generation
+come from the installation. Do not create another server, invent a runtime ID,
+or silently reconnect an old MCP child to the next generation.
 
-- `fablecut_status` — auto-starts the editor server, returns URL + project summary. Call first.
+Standalone compatibility is a separate, explicitly chosen mode outside a
+managed installation (`node <clone>/mcp-server.js`); it is not a recovery
+fallback for a stopped managed application. Upstream global Claude/npx
+registration is historical compatibility, not this application's default
+installation or startup procedure.
+
+- `fablecut_status` — verifies the bound service and returns URL + project summary. Call first. Managed startup belongs to the original owner.
 - `fablecut_docs` — returns this document (`section: "…"` returns only matching `## ` sections).
 - `fablecut_get_project` / `fablecut_set_project` — read / replace the timeline JSON.
   `fablecut_get_project {compact:true}` returns a one-line-per-clip summary instead.
@@ -58,7 +67,8 @@ Every Claude Code session then has these tools:
 - `fablecut_captions` — caption clips from the transcript, timed word by word (subtitle,
   karaoke, highlight, word pop); export or import SRT / WebVTT. See "Captions" below.
 - `fablecut_export` — render the timeline to a file in `exports/` with the editor's own
-  Fast export (open tab, or headless Chrome / Edge). See "Export" below.
+  Fast compositor in an independent prepared browser, using the admitted snapshot.
+  See "Export" below.
 - `fablecut_scopes` — measure the graded picture at a moment (levels, clipping, colour
   cast), as the editor's scopes see it; also what a grade layer or a clip's masks
   select. See "Color" and "Masks" below.
@@ -146,59 +156,53 @@ Pass `force: true` to `fablecut_set_project` only when the user explicitly
 asks to overwrite conflicting changes. `fablecut_import_media` only appends a
 new media entry and always merges safely — no conflict check needed.
 
-For Claude Desktop, add to its MCP config:
-`{"mcpServers":{"fablecut":{"command":"npx","args":["-y","fablecut","mcp"]}}}`
-(or `"command":"node","args":["<path-to>/fablecut/mcp-server.js"]` from a clone)
-Direct file editing of `project.json` (below) works too and is equivalent.
-
-Installing as a Claude Code plugin (`/plugin marketplace add ronak-create/FableCut`,
-then `/plugin install fablecut@fablecut`) does the registration for you.
+The `fablecut_*` tool identifiers and `X-FableCut-*` protocol headers remain
+compatible. They do not identify a second product or authorize a second owner.
 
 ### Where the files are
 
 `project.json`, `projects/`, `media/`, `exports/`, `analysis/` and `library/` normally sit in
-the repo next to `server.js`; installed from npm (`npx fablecut`) they sit in
-`~/FableCut`. Set **`FABLECUT_DATA_DIR`** to move all six
+the repo next to `server.js` for a standalone clone; an installed standalone
+package defaults to `~/video-editing`. Set **`FABLECUT_DATA_DIR`** to move all six
 somewhere else; the code and the static app files stay in the install directory
-either way. The plugin sets this so a plugin update can replace the install
-directory without touching anyone's timeline or footage. **Don't assume
+either way. Managed **`APP_DATA_DIR` / `APP_DATA_ROOT`** take precedence so an
+application update can replace the code without touching the project. **Don't assume
 `project.json` is beside `mcp-server.js`** — call `fablecut_status`, which
 reports the real paths.
 
 Tests (and nothing else) may set **`FABLECUT_NO_FS_WATCH=1`** to skip `fs.watch`.
 On Windows, libuv can abort the process when a file is created under a temp
 data dir. Production leaves watching on so the UI live-reloads.
-Tests may also set **`FABLECUT_NO_AUTOSTART=1`** so `ensureUIServer()` reports
-a missing editor server instead of spawning one — the auto-start is detached,
-so a test that triggers it would leave a `server.js` running after it finishes.
+Tests may also set **`FABLECUT_NO_AUTOSTART=1`** to disable standalone startup.
+Managed mode never autostarts a replacement service.
 
 ## Run
 
 ```
-node server.js        # → http://localhost:7777   (from npm: npx -y fablecut)
+node desirecore/cli.mjs start  # installed/prepared runtime; managed launch is owner-executed
+node server.js                # explicit standalone source checkout only
 ```
 
 Files: `index.html` + `style.css` + `app.js` (editor UI), `server.js` (API + hosting),
-`project.json` (the timeline — THE file to edit), `media/` (project footage),
+`project.json` (the service-owned timeline), `media/` (project footage),
 `library/` (default asset library, see below).
 
-## How Claude Code edits a video
+## How an agent edits a video
 
-1. Ensure the server is running (background: `node server.js`, or `fablecut_status`).
+1. Verify the actual installed runtime with `fablecut_status`; if unavailable, use its original owner to start/rebind it.
 2. Put source files in `./media/` (copy them in, import via the UI / **+ URL**,
    or `fablecut_import_media` with a local path or HTTPS URL).
-3. Read `project.json`, modify `media` / `clips`, **increment `revision`**, write it back.
+3. Read `fablecut_get_project`, then use `fablecut_patch_project` with its explicit `projectId`, `baseRevision` and intended ops.
 4. The browser UI (if open) reloads instantly. The user previews/exports from the UI.
 
 Rules:
-- **Prefer `fablecut_set_project`** over direct file writes — it detects conflicts
-  automatically (see the MCP section above). If you do write `project.json`
-  directly, read it **immediately** before writing (never write from a stale read:
-  if the user tweaked something in the UI between your read and write, that write
-  destroys their changes). The UI detects external changes by revision comparison,
-  so a write that does not bump `revision` is invisible to it.
-- Make each edit a single atomic write (read → modify → write once), and bump
-  `revision` (integer). Partial multi-step edits can be picked up half-finished.
+- **Use the original service commit owner.** Do not write a live managed
+  `project.json` directly or bypass history/version admission. A patch preserves
+  GUI locks and is all-or-nothing. Re-read/reconcile on conflict; never increase
+  a self-selected revision to overwrite another writer.
+- Whole-document replacement is available through `fablecut_set_project` when
+  deliberately needed. Its `force` option requires the user's explicit intent
+  to overwrite conflicting content; it is not routine conflict recovery.
 - New media entries may omit `duration` — the browser probes it and writes it back.
   If you need the duration yourself, re-read `project.json` after a second or two,
   or probe with ffprobe.
@@ -929,8 +933,8 @@ long way — ±0.02…0.05 on lift and offset, ±0.05…0.15 on gamma and gain.
   starts the layer from scratch (keeping its name), `remove:true` deletes it.
   `ids:[…]` works too.
 - `fablecut_scopes {time}` renders the graded frame at `time` (default: the
-  playhead) exactly as export would — an open editor tab, else headless — and
-  returns numbers: luma min / 1st percentile / median / mean / 99th percentile /
+  playhead) with the export compositor. The scope reading uses an open editor
+  tab, else headless, and returns numbers: luma min / 1st percentile / median / mean / 99th percentile /
   max (0–1), the % of pixels at pure black and pure white, mean R/G/B, average
   saturation, and the midtones' colour cast (hue name, hue angle, strength;
   "neutral" below 0.01), plus the clips on screen and their grades. With an
@@ -2104,7 +2108,7 @@ Timeline mode answers "what did I actually build?" — the same picture the user
 sees and export renders, grades and transitions included.
 
 Needs ffmpeg on PATH for the source modes. Timeline mode runs in the open editor
-tab, else a headless browser, like `fablecut_export`.
+tab, else a headless browser.
 
 ## Remake a reference video (analyze → blueprint → rebuild)
 
@@ -2264,12 +2268,15 @@ obvious cuts were missed, raise it if motion is being misread as cuts.
   · `POST /api/export/audio?id=` (WAV body — must be sent before the first frame)
   · `POST /api/export/end?id=[&discard=1]` → `{src}` under `/exports/`
 - Export jobs (what `fablecut_export` drives): `POST /api/export/request`
-  `{range?, profile?, where?:"auto"|"tab"|"headless"}` → `{id, status, via, …}`
-  (409 if one is already running, or nothing can render it) · `GET /api/export/job?id=`
+  `{range?, profile?, where?:"auto"|"headless"}` → `{id, status, via:"headless", snapshot, …}`.
+  Both modes render the admitted frozen document independently of the live editor.
+  Explicit `where:"tab"` returns 409 before capture; other invalid values return 400,
+  without changing the project/media or creating a snapshot, job or browser.
+  Admission also returns 409 if one is already running or nothing can render it. `GET /api/export/job?id=`
   → `{status: pending|running|done|failed|cancelled, progress 0–1, src, error}` ·
-  `POST /api/export/job/cancel?id=`. The editor tab side: SSE event `export`
-  (a ticket), `GET /api/export/job/ticket?id=`, `POST /api/export/job/claim?id=`
-  (first tab wins, else 409), `POST /api/export/job/report?id=`
+  `POST /api/export/job/cancel?id=`. The dedicated renderer reads
+  `GET /api/export/job/ticket?id=`, then `POST /api/export/job/claim?id=`
+  (the original job claims once, else 409), `POST /api/export/job/report?id=`
   `{progress} | {status:"done", src} | {status:"failed", error}` → `{cancel}`.
 
 ## Recipes
@@ -2479,7 +2486,11 @@ WebCodecs / Realtime export, and `/api/export/begin` all use this value; pass th
 
 ## Export
 
-Export is the Export button → dialog, or `fablecut_export` from an agent (below). Three engines:
+Export is the Export button → dialog, or `fablecut_export` from an agent (below).
+The fixed-input delivery path enables **Fast** through an independent prepared
+browser. The retained upstream WebCodecs and Realtime implementations described
+below are unavailable in the current UI because they do not satisfy this snapshot
+contract; they are not automatic fallbacks.
 
 1. **Fast** — browser renders each frame with the normal compositor (SVG, keys,
    AI masks), streams JPEGs + an offline WAV mix to the server; a single ffmpeg
@@ -2494,9 +2505,9 @@ Export is the Export button → dialog, or `fablecut_export` from an agent (belo
    Optional `bitrateMode: "quantizer"` (fixed QP) exists in the spec but is rarely
    supported by hardware encoders with Annex-B. Unavailable while an `exportFrame`
    crop is set — use Fast for cropped delivery.
-3. **Realtime (MediaRecorder)** — automatic offline fallback when the server,
-   ffmpeg, or WebCodecs is unavailable. Plays the timeline once and records it;
-   keep the tab focused.
+3. **Realtime (MediaRecorder, retained upstream implementation)** — plays the
+   timeline once and records it with the tab focused. Unavailable for fixed-input
+   delivery; a missing server or encoder is reported instead of selecting it.
 
 Fast and WebCodecs export decode MP4 / MOV clips with WebCodecs
 (`mp4-demux.js` + `VideoDecoder`), frame-exact. Fragmented, rotated or
@@ -2515,11 +2526,11 @@ cannot produce a one-frame black file.
 
 **Agents export with `fablecut_export`** (or `POST /api/export/request`). It is
 the same Fast export as the button — same compositor, audio mix and encoding
-profile — so it needs ffmpeg on PATH. The job goes to an open editor tab (the
-user sees the progress bar), or, with none open, the server starts a headless
-Chrome / Edge on the editor and closes it when the file is written
-(`FABLECUT_CHROME` picks the browser). The tab first loads the revision the
-agent last wrote, so an export right after a patch includes that patch.
+profile — so it needs ffmpeg and the prepared browser. Admission captures the
+saved project and declared local media; a dedicated `?exportJob=<id>` page loads
+that snapshot and renders it in the background. The live editor's project and
+playhead remain available for editing. Dynamic SVG/network dependencies and OS
+fonts are not a complete frozen dependency closure.
 
 - `fablecut_export {}` — waits, then returns the file path under `exports/`.
   Range: `inPoint`→`outPoint` when either is set, else the whole timeline;
@@ -2531,8 +2542,12 @@ agent last wrote, so an export right after a patch includes that patch.
 - `outputs:true` exports the project's checked batch outputs; `outputs:[{preset:"master"},
   {preset:"youtube"}, {preset:"instagram-reels"}, …]` exports a list. One render per
   frame rate; the reply lists every file (or why one failed).
-- `where:"headless"` renders in the background and leaves the user's tab alone;
-  `where:"tab"` refuses if no tab is open.
+- Omit `where`, or pass `where:"auto"|"headless"`, to use the independent frozen
+  renderer. `auto` does not prefer a live editing tab. `where:"tab"` is unsupported
+  and refused before capture, even with an editor open; it is never silently
+  replaced by another renderer. Other invalid values are rejected rather than
+  defaulted. Frame, scopes, tracking and transcription tools retain their own
+  tab/headless choices.
 - Long edits: `wait:false` returns a job id at once; poll with `{job:"x_…"}`
   and stop one with `{cancel:"x_…"}`. One export runs at a time.
 
@@ -2726,3 +2741,61 @@ Encoding profiles are listed at the bottom of the Export dialog's Preset list.
 
 **MCP:** `fablecut_encode_profiles` lists profiles; `{detail:true}` includes each `args`
 array; `{profile:"hq"}` returns one profile. `fablecut_status` shows the effective profile.
+
+
+## DesireCore managed editing and export contract
+
+Only the service commits project changes. GUI saves carry their confirmed
+revision and original mutation ID; an unknown save result may retry that same
+mutation, while a409 preserves the draft for deliberate reconciliation. MCP
+patches can bind both `projectId` and `baseRevision`; matching revision alone
+does not identify a project. Managed MCP verifies the actual service's data
+root/port and all four `FABLECUT_EXPECTED_INSTANCE_ID`,
+`FABLECUT_EXPECTED_SCOPE_ID`, `FABLECUT_EXPECTED_RUNTIME_GENERATION` and
+`FABLECUT_EXPECTED_RELEASE_DIGEST` values on each tool call. Missing, standalone
+or stale generations are refused. These fields check consistency; they grant
+no platform permissions and must come from the actual owner/binding.
+Managed requests also carry those expected values to the HTTP service, which
+checks them before handling the request. A restart between a successful probe
+and a later write therefore cannot silently redirect that write to a new owner.
+
+UI Fast and the GUI queue flush the saved target before
+`/api/export/request`. The service copies declared local media with bounded
+256KiB reads, hashes the actual copied bytes, and rejects an input changed
+during its per-file copy. After asynchronous capture it rechecks the original
+project identity/revision before creating the job; rejected captures are
+removed. Capture yields to the service and stops with its lifecycle. This is
+per-file capture, not a cross-file transaction; dynamic SVG/network resources
+and OS/library fonts remain outside the frozen dependency closure.
+
+The original job owns the frozen document, actual readers, progress, receipt
+and cancellation. Export admission with an unknown result is not automatically
+resubmitted. The stdio client's snapshot-admission HTTP deadline is five
+minutes, separate from its fifteen-second metadata deadline; an enclosing
+client can still impose its own deadline. Restart preserves an unfinished original ID as `interrupted`, not
+automatic continuation or an original-ID retry. Persistent snapshots and
+completed files remain retained facts, separate from temporary encoder paths.
+
+The service exclusively owns each background browser's DevTools pipe. Closing
+that pipe, including the OS closing it when the service is killed, invokes the
+browser's own shutdown callback in the pinned Chromium source. Normal job
+completion removes a temporary profile only after the original browser closes;
+service exit, including a normal stop before that close, can prevent its profile
+finalizer and termination fallbacks from completing. Native browser
+process-tree shutdown still requires separate OS acceptance; see the
+[runtime lifecycle and cleanup limits](../desirecore/RUNTIME.md).
+
+Native media and browser calls share an executable-only adapter. Fully qualified
+Windows executables use Node's namespaced path spelling; bare command lookup,
+media paths, filters, arguments and options retain their original semantics.
+Darwin/Linux executable values pass through unchanged. Platform acceptance of
+a new fixed candidate remains separate from these call-boundary regressions.
+
+`fastExport.ownerJob` owns a group's encoding session; `fastExport.job` owns
+aggregate reporting. Mixed-fps groups retain the original aggregate owner and
+finish it only after all groups complete. Cancel joins an already-started
+encoder's physical close before exact temporary-file cleanup; it does not
+promise to join a session still in preflight. A late begin rechecks its ended
+owner and cleans itself before409. Already delivered groups are retained.
+Direct WebCodecs/MediaRecorder live UI fallback is unsupported.
+

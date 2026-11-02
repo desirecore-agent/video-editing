@@ -13,7 +13,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn } = require("./native-process");
 const Stats = require("./frame-stats");
 const Beats = require("./beats");
 

@@ -12,7 +12,7 @@ const OUT = __dirname;
 /* index.html: same markup, plus the shim ahead of app.js */
 let html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 html = html
-  .replace(/<title>[^<]*<\/title>/, "<title>FableCut playground</title>")
+  .replace(/<title>[^<]*<\/title>/, "<title>视频剪辑演示</title>")
   .replace('<script src="app.js"></script>',
     '<script src="static-shim.js"></script>\n<script src="app.js"></script>');
 if (!html.includes("static-shim.js")) {
@@ -23,7 +23,7 @@ fs.writeFileSync(path.join(OUT, "index.html"), html);
 
 /* app.js and style.css are copied verbatim. Some of these only exist on
    branches that add them, so a missing one is skipped rather than fatal. */
-for (const f of ["app.js", "loudness.js", "ducking.js", "silence.js", "beats.js", "transcribe.js", "transcribe-worker.js", "captions.js", "audio-fx.js", "mask.js", "tracker.js", "reframe.js", "highlights.js", "motion.js", "color.js", "edit-ops.js", "comp.js", "sequences.js", "templates.js", "mp4-demux.js", "media-lib.js", "delivery.js", "fx-worklet.js", "style.css", "favicon.svg", "ruler-worker.js", "meter-worklet.js", "svg-sanitize.js", "credits.js"]) {
+for (const f of ["app.js", "desirecore-theme.js", "loudness.js", "ducking.js", "silence.js", "beats.js", "transcribe.js", "transcribe-worker.js", "captions.js", "audio-fx.js", "mask.js", "tracker.js", "reframe.js", "highlights.js", "motion.js", "color.js", "edit-ops.js", "comp.js", "sequences.js", "templates.js", "mp4-demux.js", "media-lib.js", "delivery.js", "fx-worklet.js", "style.css", "favicon.svg", "ruler-worker.js", "meter-worklet.js", "svg-sanitize.js", "credits.js"]) {
   const from = path.join(ROOT, f);
   if (!fs.existsSync(from)) continue;
   fs.copyFileSync(from, path.join(OUT, f));

@@ -1,0 +1,15 @@
+name: Cancel CI runs on PR close
+on:
+  pull_request_target:
+    branches: [main]
+    types: [closed]
+permissions: {}
+concurrency:
+  group: ci-CI-refs/pull/${{ github.event.pull_request.number }}/merge
+  cancel-in-progress: true
+jobs:
+  cancel:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - run: 'true'

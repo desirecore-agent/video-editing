@@ -1,7 +1,7 @@
-/* Build the /docs/ pages of fablecut.space from CLAUDE.md.
-   Run:  node docs/docs/build.js   (again whenever CLAUDE.md changes)
+/* Build the Video Editing documentation from docs/editor-guide.md.
+   Run:  node docs/docs/build.js   (again whenever docs/editor-guide.md changes)
 
-   CLAUDE.md is the manual an agent reads through fablecut_docs, so these
+   docs/editor-guide.md is the manual an agent reads through fablecut_docs, so these
    pages show exactly what the agent knows, with nothing to keep in sync by
    hand. Zero dependencies, like the rest of the repo: a small Markdown
    renderer covering what the manual uses (headings, paragraphs, nested lists,
@@ -12,25 +12,26 @@ const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const OUT = __dirname;
-const SITE = "https://fablecut.space";
-const REPO = "https://github.com/ronak-create/FableCut";
-const MANUAL = REPO + "/blob/main/CLAUDE.md";
-const RAW = "https://raw.githubusercontent.com/ronak-create/FableCut/main/CLAUDE.md";
+const REPO = "https://github.com/desirecore-agent/video-editing";
+const BRAND = "视频剪辑";
+const ENGLISH_BRAND = "Video Editing";
+const MANUAL = REPO + "/blob/main/docs/editor-guide.md";
+const RAW = "https://raw.githubusercontent.com/desirecore-agent/video-editing/main/docs/editor-guide.md";
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
-const SRC = fs.readFileSync(path.join(ROOT, "CLAUDE.md"), "utf8").replace(/\r\n/g, "\n");
+const SRC = fs.readFileSync(path.join(ROOT, "docs/editor-guide.md"), "utf8").replace(/\r\n/g, "\n");
 
 /* ── The pages. `parts` pick what goes on each: [section] is that `## `
    section's text before its first `### `, [section, sub] one `### `, and
    [section, "*"] all of it. Names match the start of the heading. ── */
 const PAGES = [
   {
-    slug: "", nav: "Overview", title: "FableCut docs", group: "Start",
-    lede: "The manual for FableCut, built from `CLAUDE.md` in the repo: the same text your agent reads through the `fablecut_docs` tool, so what you read here is what it knows.",
-    parts: [["Run"], ["How Claude Code edits a video"]],
+    slug: "", nav: "Overview", title: "视频剪辑文档", group: "Start",
+    lede: "The Video Editing manual, built from `docs/editor-guide.md` in this repository: the same text your agent reads through `fablecut_docs`.",
+    parts: [["Run"], ["How an agent edits a video"]],
   },
   {
-    slug: "studio", nav: "Studio (no install)", title: "FableCut Studio", group: "Start",
-    lede: "The same editor at studio.fablecut.space, with nothing to install. It edits a folder on your own disk, and Claude Code, claude.ai, ChatGPT or any MCP client can drive it by link.",
+    slug: "studio", nav: "Upstream Studio reference", title: "上游 Studio 参考", group: "More",
+    lede: "Historical documentation for upstream FableCut Studio. 视频剪辑 uses its installed DesireCore application and original runtime owner; the upstream Studio service is not this application's managed startup path.",
     file: "docs/docs/studio.md",
   },
   {
@@ -110,7 +111,7 @@ const PAGES = [
   },
   {
     slug: "projects", nav: "Projects", title: "Projects", group: "The timeline",
-    lede: "Keep many projects in one FableCut: a dashboard to open, create from a canvas or template, duplicate, rename, take notes on, tag, archive and delete them, and fablecut_projects for agents.",
+    lede: "Keep many projects in Video Editing: a dashboard to open, create from a canvas or template, duplicate, rename, take notes on, tag, archive and delete them, and fablecut_projects for agents.",
     parts: [["project.json schema", "Projects"]],
   },
   {
@@ -365,7 +366,7 @@ function heading(level, text, ctx, note) {
 const sections = parseManual(SRC);
 const find = (name) => {
   const s = sections.find((x) => x.title.startsWith(name));
-  if (!s) throw new Error(`CLAUDE.md has no "## ${name}" section - update PAGES in docs/docs/build.js`);
+  if (!s) throw new Error(`docs/editor-guide.md has no "## ${name}" section - update PAGES in docs/docs/build.js`);
   return s;
 };
 const findSub = (s, name) => {
@@ -453,9 +454,12 @@ const ICONS = fs.readFileSync(path.join(ROOT, "docs", "index.html"), "utf8")
 function shell(pg, main, desc) {
   const base = pg.slug ? "../../" : "../";
   const docsHome = pg.slug ? "../" : "./";
-  const url = SITE + "/docs/" + (pg.slug ? pg.slug + "/" : "");
-  const title = pg.slug ? `${pg.title} - FableCut docs` : "FableCut docs";
-  const crumbs = [{ name: "Docs", item: SITE + "/docs/" }].concat(pg.slug ? [{ name: pg.title, item: url }] : []);
+  // No standalone docs domain has been adopted. Public metadata refers to
+  // these repository sources rather than advertising the upstream website.
+  const sourceHome = REPO + "/blob/main/docs/docs/index.html";
+  const url = REPO + "/blob/main/docs/docs/" + (pg.slug ? pg.slug + "/" : "") + "index.html";
+  const title = pg.slug ? `${pg.title} - ${BRAND}文档` : `${BRAND} / ${ENGLISH_BRAND} 文档`;
+  const crumbs = [{ name: `${BRAND}文档`, item: sourceHome }].concat(pg.slug ? [{ name: pg.title, item: url }] : []);
   const ld = {
     "@context": "https://schema.org", "@type": "BreadcrumbList",
     itemListElement: crumbs.map((c, k) => ({ "@type": "ListItem", position: k + 1, name: c.name, item: c.item })),
@@ -473,41 +477,34 @@ function shell(pg, main, desc) {
 <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
 <link rel="canonical" href="${url}">
 <meta property="og:type" content="article">
-<meta property="og:site_name" content="FableCut">
+<meta property="og:site_name" content="${BRAND} / ${ENGLISH_BRAND}">
 <meta property="og:url" content="${url}">
 <meta property="og:title" content="${attr(title)}">
 <meta property="og:description" content="${attr(desc)}">
-<meta property="og:image" content="${SITE}/screenshot.png">
-<meta property="og:image:width" content="1600">
-<meta property="og:image:height" content="900">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="${SITE}/screenshot.png">
+<meta name="twitter:card" content="summary">
 <script type="application/ld+json">${JSON.stringify(ld)}</script>
 <script>document.documentElement.classList.add("js");try{var t=localStorage.getItem("fc-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
 <link rel="preload" href="${base}fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="${base}styles.css?v=50">
 </head>
 <body class="docs-page">
-<!-- Generated by docs/docs/build.js from CLAUDE.md. Edit CLAUDE.md, then rebuild. -->
+<!-- Generated by docs/docs/build.js from docs/editor-guide.md. Edit docs/editor-guide.md, then rebuild. -->
 ${ICONS}
 
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="nav" id="nav">
   <div class="wrap nav-inner">
-    <a class="brand" href="${base}" aria-label="FableCut home"><svg aria-hidden="true"><use href="#i-logo"/></svg><span>FableCut</span></a>
+    <a class="brand" href="${REPO}" aria-label="${ENGLISH_BRAND} repository"><span>${BRAND}</span></a>
     <nav class="nav-links" id="navLinks" aria-label="Primary">
-      <a href="${base}#playground">Playground</a>
-      <a href="${base}start/">Get started</a>
-      <a href="https://studio.fablecut.space">Studio</a>
-      <a href="${base}community/">Community</a>
+      <a href="${REPO}/tree/main/docs/demo">Demo source</a>
+      <a href="${MANUAL}">Get started</a>
+      <a href="${REPO}/releases">Releases</a>
+      <a href="${REPO}/issues">Issues</a>
       <a href="${docsHome}" aria-current="page">Docs</a>
     </nav>
     <div class="nav-end">
-      <a class="gh" href="https://discord.gg/EFMQH7d6Tv" rel="noopener" target="_blank" aria-label="FableCut on Discord" title="Discord — questions, bugs, ideas">
-        <svg class="i" aria-hidden="true"><use href="#i-discord"/></svg>
-      </a>
-      <a class="gh" href="${REPO}" rel="noopener" target="_blank" aria-label="FableCut on GitHub">
+      <a class="gh" href="${REPO}" rel="noopener" target="_blank" aria-label="${ENGLISH_BRAND} on GitHub">
         <svg class="i" aria-hidden="true"><use href="#i-gh"/></svg><span class="gh-label">GitHub</span><span class="gh-count" data-stars></span>
       </a>
       <button class="menu-btn" id="menuBtn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="navLinks"><svg class="i" aria-hidden="true"><use href="#i-menu"/></svg></button>
@@ -520,14 +517,11 @@ ${main}
 <footer class="footer">
   <div class="wrap">
     <div class="foot">
-      <a class="brand" href="${base}" aria-label="FableCut home"><svg aria-hidden="true"><use href="#i-logo"/></svg><span>FableCut</span></a>
+      <a class="brand" href="${REPO}" aria-label="${ENGLISH_BRAND} repository"><span>${BRAND}</span></a>
       <nav class="foot-links" aria-label="Footer">
         <a href="${REPO}" rel="noopener" target="_blank">GitHub</a>
         <a href="${docsHome}">Docs</a>
-        <a href="https://discord.gg/EFMQH7d6Tv" rel="noopener" target="_blank">Discord</a>
-        <a href="mailto:hello@fablecut.space">Email</a>
         <a href="${REPO}/releases" rel="noopener" target="_blank">Releases</a>
-        <a href="https://status.fablecut.space" rel="noopener" target="_blank">Status</a>
         <a href="${REPO}/blob/main/SECURITY.md" rel="noopener" target="_blank">Security</a>
         <a href="${REPO}/blob/main/LICENSE" rel="noopener" target="_blank">MIT License</a>
       </nav>
@@ -535,7 +529,7 @@ ${main}
         <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch color theme"><svg class="i i-sun" aria-hidden="true"><use href="#i-sun"/></svg><svg class="i i-moon" aria-hidden="true"><use href="#i-moon"/></svg></button>
       </div>
     </div>
-    <p class="fine">Built in the browser. Drivable by any agent that speaks JSON.</p>
+    <p class="fine">${ENGLISH_BRAND}, derived from <a href="https://github.com/ronak-create/FableCut">FableCut</a>. Original MIT attribution and copyright are preserved in the repository.</p>
   </div>
 </footer>
 
@@ -576,7 +570,7 @@ function build() {
     ${body}
     <div class="docs-end">
       ${pg.file ? `<a class="more" href="${REPO}/blob/main/${pg.file}" rel="noopener" target="_blank">Edit this page <svg class="i i-ne" aria-hidden="true"><use href="#i-ne"/></svg></a>` :
-      `<a class="more" href="${MANUAL}#L${ctx.lines[0]}" rel="noopener" target="_blank">Edit this in CLAUDE.md <svg class="i i-ne" aria-hidden="true"><use href="#i-ne"/></svg></a>
+      `<a class="more" href="${MANUAL}#L${ctx.lines[0]}" rel="noopener" target="_blank">Edit this in docs/editor-guide.md <svg class="i i-ne" aria-hidden="true"><use href="#i-ne"/></svg></a>
       <a class="more" href="${RAW}" rel="noopener" target="_blank">The whole manual as Markdown <svg class="i i-ne" aria-hidden="true"><use href="#i-ne"/></svg></a>`}
     </div>
     <nav class="docs-pn" aria-label="Previous and next page">${pn(prev, "prev")}${pn(next, "next")}</nav>
@@ -587,13 +581,13 @@ function build() {
 
     const dir = path.join(OUT, pg.slug);
     fs.mkdirSync(dir, { recursive: true });
-    const desc = plain(pg.lede) || `${pg.title}, from the FableCut manual.`;
-    fs.writeFileSync(path.join(dir, "index.html"), shell(pg, main, `${desc} FableCut v${VERSION}.`));
+    const desc = plain(pg.lede) || `${pg.title}, from the ${ENGLISH_BRAND} manual.`;
+    fs.writeFileSync(path.join(dir, "index.html"), shell(pg, main, `${desc} ${BRAND} / ${ENGLISH_BRAND} v${VERSION}.`));
     written++;
   });
   return written;
 }
 
 const n = build();
-console.log(`docs: ${n} pages from CLAUDE.md (FableCut v${VERSION}) in ${path.relative(ROOT, OUT) || "."}/`);
+console.log(`docs: ${n} pages from docs/editor-guide.md (${BRAND} / ${ENGLISH_BRAND} v${VERSION}) in ${path.relative(ROOT, OUT) || "."}/`);
 module.exports = { PAGES };

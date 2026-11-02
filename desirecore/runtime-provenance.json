@@ -1,0 +1,263 @@
+{
+  "schemaVersion": 1,
+  "description": "Pinned dependency source provenance; source availability, binary versions and native acceptance remain distinct facts. These records do not claim complete corresponding configured FFmpeg source was independently verified.",
+  "ffmpegRelease": "https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1",
+  "ffmpegSourceDownloadScript": "https://github.com/eugeneware/ffmpeg-static/blob/b6.1.1/download-binaries/index.sh",
+  "chromiumVersion": "156.0.8078.80",
+  "chromiumMetadata": "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json",
+  "targets": {
+    "darwin-arm64": {
+      "ffmpeg": {
+        "platform": "darwin-arm64",
+        "executables": {
+          "ffmpeg": "ffmpeg",
+          "ffprobe": "ffprobe"
+        },
+        "binaryVersionObserved": null,
+        "runtimeObservationRequired": [
+          "ffmpeg -version",
+          "ffprobe -version",
+          "ffmpeg -L",
+          "ffprobe -L",
+          "ffmpeg -buildconf"
+        ],
+        "readmeVersion": null,
+        "configuredBinaryVersionHint": "6.0 (existing OpenFilm runtime metadata, not observed in this research)",
+        "binaryMaintainerUrls": [
+          "https://www.osxexperts.net/ffmpeg6arm.zip",
+          "https://www.osxexperts.net/ffprobe6arm.zip"
+        ],
+        "metadataCaveat": "ffmpeg-static copies generic n6.1.1 README/LICENSE; these are not the binary build report. Actual binary version/license require runtime observation.",
+        "upstreamSourceUrlCandidate": "https://ffmpeg.org/releases/ffmpeg-6.0.tar.xz",
+        "upstreamSourceVerification": "Candidate source URL inferred from maintainer metadata; corresponding full configured binary source not verified or downloaded."
+      },
+      "chromium": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.80/mac-arm64/chrome-headless-shell-mac-arm64.zip",
+        "size": 103982159,
+        "sha256": "ea615baa2e9caf0d02d1898a6562b5f8fa9c35239707dae0f592178df5b986ac",
+        "gcsGeneration": "1793229146450866",
+        "gcsMetadataUrl": "https://storage.googleapis.com/storage/v1/b/chrome-for-testing-public/o/156.0.8078.80%2Fmac-arm64%2Fchrome-headless-shell-mac-arm64.zip",
+        "vendorMd5Hex": "0a85d890451541efc5400508787b5bf1",
+        "vendorCrc32cBase64": "Dg1FIg=="
+      },
+      "chromiumLicenseFiles": {
+        "ABOUT": {
+          "archivePath": "chrome-headless-shell-mac-arm64/ABOUT",
+          "sha256": "34d078ce3003087a8374e7c6156fda374769b8047d6ddaf419d66414aa48edfb",
+          "size": 248
+        },
+        "LICENSE.headless_shell": {
+          "archivePath": "chrome-headless-shell-mac-arm64/LICENSE.headless_shell",
+          "sha256": "a2196c2e406ebe900cd6403a033935ecc641a971b7f2a57bd8c24afa9574e492",
+          "size": 2151339
+        }
+      }
+    },
+    "darwin-x64": {
+      "ffmpeg": {
+        "platform": "darwin-x64",
+        "executables": {
+          "ffmpeg": "ffmpeg",
+          "ffprobe": "ffprobe"
+        },
+        "binaryVersionObserved": null,
+        "runtimeObservationRequired": [
+          "ffmpeg -version",
+          "ffprobe -version",
+          "ffmpeg -L",
+          "ffprobe -L",
+          "ffmpeg -buildconf"
+        ],
+        "readmeVersion": "8.0",
+        "configuredBinaryVersionHint": "6.1.1 (pinned binary download endpoint in b6.1.1 download-binaries/index.sh)",
+        "binaryMaintainerUrls": [
+          "https://evermeet.cx/ffmpeg/info/ffmpeg/6.1.1",
+          "https://evermeet.cx/ffmpeg/info/ffprobe/6.1.1"
+        ],
+        "metadataCaveat": "Binary downloaded via 6.1.1 endpoints, but README copied from moving /info/ffmpeg/release and LICENSE from FFmpeg HEAD. README8.0 does not prove binary8.0.",
+        "upstreamSourceUrlCandidate": "https://ffmpeg.org/releases/ffmpeg-6.1.1.tar.xz",
+        "upstreamSourceVerification": "Candidate source URL inferred from maintainer metadata; corresponding full configured binary source not verified or downloaded."
+      },
+      "chromium": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.80/mac-x64/chrome-headless-shell-mac-x64.zip",
+        "size": 109493298,
+        "sha256": "535d417d9034cbd11e7dacd1a71aa3d6e1b525e6d5dcd2671eb2532f01481228",
+        "gcsGeneration": "1793235796805692",
+        "gcsMetadataUrl": "https://storage.googleapis.com/storage/v1/b/chrome-for-testing-public/o/156.0.8078.80%2Fmac-x64%2Fchrome-headless-shell-mac-x64.zip",
+        "vendorMd5Hex": "6c5c175dd11c8aca67584cc6aac4f2d5",
+        "vendorCrc32cBase64": "qgExDA=="
+      },
+      "chromiumLicenseFiles": {
+        "ABOUT": {
+          "archivePath": "chrome-headless-shell-mac-x64/ABOUT",
+          "sha256": "34d078ce3003087a8374e7c6156fda374769b8047d6ddaf419d66414aa48edfb",
+          "size": 248
+        },
+        "LICENSE.headless_shell": {
+          "archivePath": "chrome-headless-shell-mac-x64/LICENSE.headless_shell",
+          "sha256": "a2196c2e406ebe900cd6403a033935ecc641a971b7f2a57bd8c24afa9574e492",
+          "size": 2151339
+        }
+      }
+    },
+    "win32-x64": {
+      "ffmpeg": {
+        "platform": "win32-x64",
+        "executables": {
+          "ffmpeg": "ffmpeg.exe",
+          "ffprobe": "ffprobe.exe"
+        },
+        "binaryVersionObserved": null,
+        "runtimeObservationRequired": [
+          "ffmpeg -version",
+          "ffprobe -version",
+          "ffmpeg -L",
+          "ffprobe -L",
+          "ffmpeg -buildconf"
+        ],
+        "readmeVersion": "6.1.1-essentials_build-www.gyan.dev",
+        "configuredBinaryVersionHint": "6.1.1",
+        "binaryMaintainerUrls": [
+          "https://github.com/GyanD/codexffmpeg/releases/download/6.1.1/ffmpeg-6.1.1-essentials_build.7z"
+        ],
+        "upstreamSourceUrlCandidate": "https://github.com/FFmpeg/FFmpeg/commit/e38092ef93",
+        "upstreamSourceVerification": "Candidate source URL inferred from maintainer metadata; corresponding full configured binary source not verified or downloaded."
+      },
+      "chromium": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.80/win64/chrome-headless-shell-win64.zip",
+        "size": 125772546,
+        "sha256": "10a77466005e7f64e00f1a75fd1ea81f4a38a60093c65fea6895843b26e60a9a",
+        "gcsGeneration": "1793228105634845",
+        "gcsMetadataUrl": "https://storage.googleapis.com/storage/v1/b/chrome-for-testing-public/o/156.0.8078.80%2Fwin64%2Fchrome-headless-shell-win64.zip",
+        "vendorMd5Hex": "a169154ee749a957ba0a10a5e4c7a888",
+        "vendorCrc32cBase64": "06ZCQw=="
+      },
+      "chromiumLicenseFiles": {
+        "ABOUT": {
+          "archivePath": "chrome-headless-shell-win64/ABOUT",
+          "sha256": "122b32f3ee3f1e8d65c774f5257fc6cc2127b666148ced0ce2efa3ea57e1d93c",
+          "size": 257
+        },
+        "LICENSE.headless_shell": {
+          "archivePath": "chrome-headless-shell-win64/LICENSE.headless_shell",
+          "sha256": "1b6e83846a68f8f0a383057c78d180d58ec11a0abfcba380f11d5c2f4b45b273",
+          "size": 2451393
+        }
+      }
+    },
+    "linux-x64": {
+      "ffmpeg": {
+        "platform": "linux-x64",
+        "executables": {
+          "ffmpeg": "ffmpeg",
+          "ffprobe": "ffprobe"
+        },
+        "binaryVersionObserved": null,
+        "runtimeObservationRequired": [
+          "ffmpeg -version",
+          "ffprobe -version",
+          "ffmpeg -L",
+          "ffprobe -L",
+          "ffmpeg -buildconf"
+        ],
+        "readmeVersion": "7.0.2",
+        "configuredBinaryVersionHint": "7.0.2 (README from same downloaded upstream release archive)",
+        "binaryMaintainerUrls": [
+          "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+        ],
+        "upstreamSourceUrlCandidate": "https://ffmpeg.org/releases/ffmpeg-7.0.2.tar.xz",
+        "maintainerSourceIndexUrl": "https://johnvansickle.com/ffmpeg/release-source/",
+        "metadataCaveat": "Release tag b6.1.1 is not binary version: Linux assets are from moving John Van Sickle release URL; README says7.0.2. Source index currently lists old4.1 and does not by itself supply complete corresponding7.0.2 build source.",
+        "upstreamSourceVerification": "Candidate source URL inferred from maintainer metadata; corresponding full configured binary source not verified or downloaded."
+      },
+      "chromium": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.80/linux64/chrome-headless-shell-linux64.zip",
+        "size": 126922702,
+        "sha256": "547dcd374e02961bf998f6046a267644f8502225c36bb78ca307dab32a0b3eb4",
+        "gcsGeneration": "1793228568679944",
+        "gcsMetadataUrl": "https://storage.googleapis.com/storage/v1/b/chrome-for-testing-public/o/156.0.8078.80%2Flinux64%2Fchrome-headless-shell-linux64.zip",
+        "vendorMd5Hex": "df95518f491e8d1fdeb85041b399cb37",
+        "vendorCrc32cBase64": "xNw1zg=="
+      },
+      "chromiumLicenseFiles": {
+        "ABOUT": {
+          "archivePath": "chrome-headless-shell-linux64/ABOUT",
+          "sha256": "34d078ce3003087a8374e7c6156fda374769b8047d6ddaf419d66414aa48edfb",
+          "size": 248
+        },
+        "LICENSE.headless_shell": {
+          "archivePath": "chrome-headless-shell-linux64/LICENSE.headless_shell",
+          "sha256": "80253764cf5dde31aae6aa57ff29d460947d110f3eae31cb9cf208fb5ffcc089",
+          "size": 2414953
+        },
+        "deb.deps": {
+          "archivePath": "chrome-headless-shell-linux64/deb.deps",
+          "sha256": "6e132d3bfd266a9081eb91e9ca6c13675d89cdbc3a193ccb0471e0821c07d012",
+          "size": 660
+        },
+        "rpm.deps": {
+          "archivePath": "chrome-headless-shell-linux64/rpm.deps",
+          "sha256": "760d6a93ff8f0dbad7c8031551d5f6cb6755fc72f5dd70804523611371e55846",
+          "size": 2760
+        }
+      }
+    },
+    "linux-arm64": {
+      "ffmpeg": {
+        "platform": "linux-arm64",
+        "executables": {
+          "ffmpeg": "ffmpeg",
+          "ffprobe": "ffprobe"
+        },
+        "binaryVersionObserved": null,
+        "runtimeObservationRequired": [
+          "ffmpeg -version",
+          "ffprobe -version",
+          "ffmpeg -L",
+          "ffprobe -L",
+          "ffmpeg -buildconf"
+        ],
+        "readmeVersion": "7.0.2",
+        "configuredBinaryVersionHint": "7.0.2 (README from same downloaded upstream release archive)",
+        "binaryMaintainerUrls": [
+          "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz"
+        ],
+        "upstreamSourceUrlCandidate": "https://ffmpeg.org/releases/ffmpeg-7.0.2.tar.xz",
+        "maintainerSourceIndexUrl": "https://johnvansickle.com/ffmpeg/release-source/",
+        "metadataCaveat": "Release tag b6.1.1 is not binary version: Linux assets are from moving John Van Sickle release URL; README says7.0.2. Source index currently lists old4.1 and does not by itself supply complete corresponding7.0.2 build source.",
+        "upstreamSourceVerification": "Candidate source URL inferred from maintainer metadata; corresponding full configured binary source not verified or downloaded."
+      },
+      "chromium": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.80/linux-arm64/chrome-headless-shell-linux-arm64.zip",
+        "size": 126679292,
+        "sha256": "5bb6a00a4285c13303d3f72c5afdb70f144ea7a93eed462365a52b69631c9607",
+        "gcsGeneration": "1793228351587445",
+        "gcsMetadataUrl": "https://storage.googleapis.com/storage/v1/b/chrome-for-testing-public/o/156.0.8078.80%2Flinux-arm64%2Fchrome-headless-shell-linux-arm64.zip",
+        "vendorMd5Hex": "acd511d3783175620a900515e97f9ccb",
+        "vendorCrc32cBase64": "4bEXvA=="
+      },
+      "chromiumLicenseFiles": {
+        "ABOUT": {
+          "archivePath": "chrome-headless-shell-linux-arm64/ABOUT",
+          "sha256": "34d078ce3003087a8374e7c6156fda374769b8047d6ddaf419d66414aa48edfb",
+          "size": 248
+        },
+        "LICENSE.headless_shell": {
+          "archivePath": "chrome-headless-shell-linux-arm64/LICENSE.headless_shell",
+          "sha256": "80253764cf5dde31aae6aa57ff29d460947d110f3eae31cb9cf208fb5ffcc089",
+          "size": 2414953
+        },
+        "deb.deps": {
+          "archivePath": "chrome-headless-shell-linux-arm64/deb.deps",
+          "sha256": "6e132d3bfd266a9081eb91e9ca6c13675d89cdbc3a193ccb0471e0821c07d012",
+          "size": 660
+        },
+        "rpm.deps": {
+          "archivePath": "chrome-headless-shell-linux-arm64/rpm.deps",
+          "sha256": "4fafcd4a96531b76f87792305057229f00a8d1376dbc5111c9b861569e84164c",
+          "size": 2147
+        }
+      }
+    }
+  }
+}

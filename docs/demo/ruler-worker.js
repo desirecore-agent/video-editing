@@ -1,4 +1,4 @@
-/* FableCut timeline-ruler worker.
+/* 视频剪辑 timeline-ruler worker.
    Draws the ruler canvas (ticks, time labels, IN/OUT flags, beat markers,
    playhead) off the main thread via a transferred OffscreenCanvas. This is a
    clean Worker candidate — unlike the program-monitor compositor (app.js
@@ -19,7 +19,8 @@ function fmt(t, fps) {
 
 function draw(msg) {
   if (!g) return;
-  const { w, h, dpr, sl, pps, markers, markerColors, inPoint, outPoint, time, fps } = msg;
+  const { w, h, dpr, sl, pps, markers, markerColors, inPoint, outPoint, time, fps, palette } = msg;
+  const color = (key, fallback) => palette?.[key] || fallback;
   const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
   if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -29,9 +30,9 @@ function draw(msg) {
   const minor = step / 5;
   const i0 = Math.max(0, Math.floor(sl / pps / minor));
   // ticks + time labels first so IN/OUT can difference-blend over them
-  g.strokeStyle = "#4a4a55";
-  g.fillStyle = "#9a9aa6";
-  g.font = "10px Consolas, monospace";
+  g.strokeStyle = color("rulerTick", "#4a4a55");
+  g.fillStyle = color("rulerText", "#9a9aa6");
+  g.font = `10px ${color("fontMono", "Consolas, monospace")}`;
   g.beginPath();
   for (let i = i0; i * minor * pps < sl + w; i++) {
     const t = i * minor;
@@ -44,7 +45,7 @@ function draw(msg) {
   // dim timeline outside the IN–OUT work area
   if (inPoint != null && outPoint != null && outPoint > inPoint) {
     const x0 = inPoint * pps - sl, x1 = outPoint * pps - sl;
-    g.fillStyle = "#00000055";
+    g.fillStyle = color("outsideRange", "#00000055");
     if (x0 > 0) g.fillRect(0, 0, Math.min(w, x0), h);
     if (x1 < w) g.fillRect(Math.max(0, x1), 0, w - Math.max(0, x1), h);
   }
@@ -68,7 +69,7 @@ function draw(msg) {
         g.beginPath(); g.rect(x + 6, h - 12, room, 12); g.clip();
         g.font = "9px system-ui, sans-serif";
         const tw = g.measureText(mk.label).width;
-        g.fillStyle = "#101014cc";
+        g.fillStyle = color("markerLabelBackground", "#101014cc");
         g.fillRect(x + 6, h - 11, Math.min(tw + 6, room), 10);
         g.fillStyle = col;
         g.fillText(mk.label, x + 9, h - 3);
@@ -82,7 +83,7 @@ function draw(msg) {
   if (inPoint != null) {
     const x = inPoint * pps - sl;
     if (x >= -10 && x <= w + 10) {
-      g.fillStyle = "#5eead4";
+      g.fillStyle = color("rangeIn", "#5eead4");
       g.beginPath();
       g.moveTo(x, top); g.lineTo(x, bot); g.lineTo(x + 8, mid);
       g.closePath(); g.fill();
@@ -91,7 +92,7 @@ function draw(msg) {
   if (outPoint != null) {
     const x = outPoint * pps - sl;
     if (x >= -10 && x <= w + 10) {
-      g.fillStyle = "#fb923c";
+      g.fillStyle = color("rangeOut", "#fb923c");
       g.beginPath();
       g.moveTo(x, top); g.lineTo(x, bot); g.lineTo(x - 8, mid);
       g.closePath(); g.fill();
@@ -101,7 +102,7 @@ function draw(msg) {
   // playhead marker on ruler
   const px = time * pps - sl;
   if (px >= -8 && px <= w + 8) {
-    g.fillStyle = "#ff4d6a";
+    g.fillStyle = color("playhead", "#ff4d6a");
     g.beginPath();
     g.moveTo(px - 6, 12); g.lineTo(px + 6, 12); g.lineTo(px + 6, 19); g.lineTo(px, 25); g.lineTo(px - 6, 19);
     g.closePath(); g.fill();

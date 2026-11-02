@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "视频剪辑 current runtime connection snapshot",
+  "description": "A non-secret connection hint copied from actual owner responses. This file is not authorization, a service launcher or an alternative owner ledger. CLI verifies all current service facts before each attachment.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "dataDir",
+    "port",
+    "instanceId",
+    "scopeId",
+    "runtimeGeneration",
+    "releaseDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "description": "Thin CLI connection snapshot format."
+    },
+    "dataDir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Absolute actual installed application data root; owner-injected data directory wins during launch."
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Actual existing loopback service port returned by its owner."
+    },
+    "instanceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Exact instanceId from current /api/desirecore/instance; never product or Agent UUID."
+    },
+    "scopeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Exact scopeId from current platform runtime binding."
+    },
+    "runtimeGeneration": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Exact generation from current platform runtime binding; stale generations are rejected."
+    },
+    "releaseDigest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Exact app-release-c14n-v1 SHA256 of the current installed runtime binding; not source/archive SHA."
+    }
+  }
+}

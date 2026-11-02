@@ -1,0 +1,273 @@
+/* 视频剪辑 / Video Editing UI appearance. Source fallback: DesireCore globals.css
+   @ 1ab4b4601b26a5fb62f231dcb285ba4c95ab754e. Only the UI shell consumes these
+   tokens; user footage, document colors and the compositor retain their values. */
+:root {
+  --sys-label: var(--host-sys-label, var(--fallback-sys-label));
+  --sys-secondary: var(--host-sys-secondary, var(--fallback-sys-secondary));
+  --sys-tertiary: var(--host-sys-tertiary, var(--fallback-sys-tertiary));
+  --sys-quaternary: var(--host-sys-quaternary, var(--fallback-sys-quaternary));
+  --sys-separator: var(--host-sys-separator, var(--fallback-sys-separator));
+  --sys-fill: var(--host-sys-fill, var(--fallback-sys-fill));
+  --glass-white: var(--host-glass-white, var(--fallback-glass-white));
+  --glass-card: var(--host-glass-card, var(--fallback-glass-card));
+  --glass-hover: var(--host-glass-hover, var(--fallback-glass-hover));
+  --glass-active: var(--host-glass-active, var(--fallback-glass-active));
+  --glass-border: var(--host-glass-border, var(--fallback-glass-border));
+  --glass-highlight: var(--host-glass-highlight, var(--fallback-glass-highlight));
+  --glass-dim: var(--host-glass-dim, var(--fallback-glass-dim));
+  --glass-solid: var(--host-glass-solid, var(--fallback-glass-solid));
+  --glass-modal: var(--host-glass-modal, var(--fallback-glass-modal));
+  --action-primary: var(--host-action-primary, var(--fallback-action-primary));
+  --action-hover: var(--host-action-hover, var(--fallback-action-hover));
+  --action-solid: var(--host-action-solid, var(--fallback-action-solid));
+  --action-solid-hover: var(--host-action-solid-hover, var(--fallback-action-solid-hover));
+  --action-foreground: var(--host-action-foreground, var(--fallback-action-foreground));
+  --action-soft: var(--host-action-soft, var(--fallback-action-soft));
+  --action-border: var(--host-action-border, var(--fallback-action-border));
+  --accent-green: var(--host-accent-green, var(--fallback-accent-green));
+  --accent-blue: var(--host-accent-blue, var(--fallback-accent-blue));
+  --accent-purple: var(--host-accent-purple, var(--fallback-accent-purple));
+  --accent-orange: var(--host-accent-orange, var(--fallback-accent-orange));
+  --accent-red: var(--host-accent-red, var(--fallback-accent-red));
+  --font-sans: var(--host-font-sans, var(--fallback-font-sans));
+  --radius-sm: var(--host-radius-sm, var(--fallback-radius-sm));
+  --radius-md: var(--host-radius-md, var(--fallback-radius-md));
+  --radius-base: var(--host-radius-base, var(--fallback-radius-base));
+  --radius-lg: var(--host-radius-lg, var(--fallback-radius-lg));
+  --radius-xl: var(--host-radius-xl, var(--fallback-radius-xl));
+  --radius-2xl: var(--host-radius-2xl, var(--fallback-radius-2xl));
+  --radius-input: var(--host-radius-input, var(--fallback-radius-input));
+  --radius-pill: var(--host-radius-pill, var(--fallback-radius-pill));
+  --shadow-glass: var(--host-shadow-glass, var(--fallback-shadow-glass));
+  --shadow-glass-btn: var(--host-shadow-glass-btn, var(--fallback-shadow-glass-btn));
+  --shadow-float: var(--host-shadow-float, var(--fallback-shadow-float));
+  --shadow-contained-card: var(--host-shadow-contained-card, var(--fallback-shadow-contained-card));
+  --shadow-contained-popover: var(--host-shadow-contained-popover, var(--fallback-shadow-contained-popover));
+  --scroll-thumb: var(--host-scroll-thumb, var(--fallback-scroll-thumb));
+  --scroll-thumb-hover: var(--host-scroll-thumb-hover, var(--fallback-scroll-thumb-hover));
+}
+
+/* Standalone preview follows the system. Host values always take precedence. */
+:root, :root[data-theme="light"] {
+  color-scheme: light;
+  --fallback-sys-label: #1d1d1f;
+  --fallback-sys-secondary: #6e6e73;
+  --fallback-sys-tertiary: #aeaeb2;
+  --fallback-sys-quaternary: #c7c7cc;
+  --fallback-sys-separator: rgba(60, 60, 67, 0.08);
+  --fallback-sys-fill: rgba(120, 120, 128, 0.08);
+  --fallback-glass-white: rgba(255, 255, 255, 0.72);
+  --fallback-glass-card: rgba(255, 255, 255, 0.58);
+  --fallback-glass-hover: rgba(255, 255, 255, 0.76);
+  --fallback-glass-active: rgba(255, 255, 255, 0.9);
+  --fallback-glass-border: rgba(60, 60, 67, 0.09);
+  --fallback-glass-highlight: rgba(255, 255, 255, 0.55);
+  --fallback-glass-dim: rgba(255, 255, 255, 0.12);
+  --fallback-glass-solid: rgb(253, 253, 252);
+  --fallback-glass-modal: rgba(253, 253, 252, 0.96);
+  --fallback-action-primary: #397455;
+  --fallback-action-hover: #2d6246;
+  --fallback-action-solid: #397455;
+  --fallback-action-solid-hover: #2d6246;
+  --fallback-action-foreground: #ffffff;
+  --fallback-action-soft: rgba(57, 116, 85, 0.1);
+  --fallback-action-border: rgba(57, 116, 85, 0.28);
+  --fallback-accent-green: #34c759;
+  --fallback-accent-blue: #007aff;
+  --fallback-accent-purple: #af52de;
+  --fallback-accent-orange: #ff9500;
+  --fallback-accent-red: #ff3b30;
+  --fallback-font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Noto Sans SC', system-ui, sans-serif;
+  --fallback-radius-sm: 4px;
+  --fallback-radius-md: 7px;
+  --fallback-radius-base: 10px;
+  --fallback-radius-lg: 12px;
+  --fallback-radius-xl: 14px;
+  --fallback-radius-2xl: 16px;
+  --fallback-radius-input: 16px;
+  --fallback-radius-pill: 999px;
+  --fallback-shadow-glass: 0 0.5px 0 0 rgba(255, 255, 255, 0.55) inset, 0 1px 2px rgba(30, 30, 32, 0.045), 0 4px 12px rgba(30, 30, 32, 0.035);
+  --fallback-shadow-glass-btn: 0 0.5px 0 0 rgba(255, 255, 255, 0.5) inset, 0 1px 2px rgba(0, 0, 0, 0.06);
+  --fallback-shadow-float: 0 8px 24px rgba(30, 30, 32, 0.09), 0 2px 6px rgba(30, 30, 32, 0.04);
+  --fallback-shadow-contained-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 3px 8px -3px rgba(0, 0, 0, 0.12);
+  --fallback-shadow-contained-popover: 0 3px 8px -3px rgba(0, 0, 0, 0.1), 0 10px 24px -12px rgba(0, 0, 0, 0.18);
+  --fallback-scroll-thumb: rgba(0, 0, 0, 0.1);
+  --fallback-scroll-thumb-hover: rgba(0, 0, 0, 0.18);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --fallback-sys-label: rgb(248, 248, 252);
+  --fallback-sys-secondary: rgb(200, 200, 206);
+  --fallback-sys-tertiary: rgb(165, 165, 172);
+  --fallback-sys-quaternary: rgb(130, 130, 138);
+  --fallback-sys-separator: rgba(255, 255, 255, 0.08);
+  --fallback-sys-fill: rgba(255, 255, 255, 0.06);
+  --fallback-glass-white: rgba(34, 34, 36, 0.8);
+  --fallback-glass-card: rgba(36, 36, 38, 0.76);
+  --fallback-glass-hover: rgba(255, 255, 255, 0.075);
+  --fallback-glass-active: rgba(255, 255, 255, 0.125);
+  --fallback-glass-border: rgba(255, 255, 255, 0.11);
+  --fallback-glass-highlight: rgba(255, 255, 255, 0.085);
+  --fallback-glass-dim: rgba(255, 255, 255, 0.04);
+  --fallback-glass-solid: rgb(44, 44, 47);
+  --fallback-glass-modal: rgba(44, 44, 47, 0.96);
+  --fallback-action-primary: #93c6a5;
+  --fallback-action-hover: #add4bb;
+  --fallback-action-solid: #75ad8c;
+  --fallback-action-solid-hover: #8abf9f;
+  --fallback-action-foreground: #10251b;
+  --fallback-action-soft: rgba(147, 198, 165, 0.12);
+  --fallback-action-border: rgba(147, 198, 165, 0.3);
+  --fallback-accent-green: #30d158;
+  --fallback-accent-blue: #0a84ff;
+  --fallback-accent-purple: #bf5af2;
+  --fallback-accent-orange: #ff9500;
+  --fallback-accent-red: #ff3b30;
+  --fallback-font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Noto Sans SC', system-ui, sans-serif;
+  --fallback-radius-sm: 4px;
+  --fallback-radius-md: 7px;
+  --fallback-radius-base: 10px;
+  --fallback-radius-lg: 12px;
+  --fallback-radius-xl: 14px;
+  --fallback-radius-2xl: 16px;
+  --fallback-radius-input: 16px;
+  --fallback-radius-pill: 999px;
+  --fallback-shadow-glass: 0 0.5px 0 0 rgba(255, 255, 255, 0.085) inset, 0 1px 2px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.14);
+  --fallback-shadow-glass-btn: 0 0.5px 0 0 rgba(255, 255, 255, 0.12) inset, 0 1px 2px rgba(0, 0, 0, 0.2);
+  --fallback-shadow-float: 0 8px 24px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.15);
+  --fallback-shadow-contained-card: 0 1px 2px rgba(0, 0, 0, 0.18), 0 3px 8px -3px rgba(0, 0, 0, 0.32);
+  --fallback-shadow-contained-popover: 0 3px 8px -3px rgba(0, 0, 0, 0.28), 0 10px 24px -12px rgba(0, 0, 0, 0.48);
+  --fallback-scroll-thumb: rgba(255, 255, 255, 0.12);
+  --fallback-scroll-thumb-hover: rgba(255, 255, 255, 0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --fallback-sys-label: rgb(248, 248, 252);
+    --fallback-sys-secondary: rgb(200, 200, 206);
+    --fallback-sys-tertiary: rgb(165, 165, 172);
+    --fallback-sys-quaternary: rgb(130, 130, 138);
+    --fallback-sys-separator: rgba(255, 255, 255, 0.08);
+    --fallback-sys-fill: rgba(255, 255, 255, 0.06);
+    --fallback-glass-white: rgba(34, 34, 36, 0.8);
+    --fallback-glass-card: rgba(36, 36, 38, 0.76);
+    --fallback-glass-hover: rgba(255, 255, 255, 0.075);
+    --fallback-glass-active: rgba(255, 255, 255, 0.125);
+    --fallback-glass-border: rgba(255, 255, 255, 0.11);
+    --fallback-glass-highlight: rgba(255, 255, 255, 0.085);
+    --fallback-glass-dim: rgba(255, 255, 255, 0.04);
+    --fallback-glass-solid: rgb(44, 44, 47);
+    --fallback-glass-modal: rgba(44, 44, 47, 0.96);
+    --fallback-action-primary: #93c6a5;
+    --fallback-action-hover: #add4bb;
+    --fallback-action-solid: #75ad8c;
+    --fallback-action-solid-hover: #8abf9f;
+    --fallback-action-foreground: #10251b;
+    --fallback-action-soft: rgba(147, 198, 165, 0.12);
+    --fallback-action-border: rgba(147, 198, 165, 0.3);
+    --fallback-accent-green: #30d158;
+    --fallback-accent-blue: #0a84ff;
+    --fallback-accent-purple: #bf5af2;
+    --fallback-accent-orange: #ff9500;
+    --fallback-accent-red: #ff3b30;
+    --fallback-font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Noto Sans SC', system-ui, sans-serif;
+    --fallback-radius-sm: 4px;
+    --fallback-radius-md: 7px;
+    --fallback-radius-base: 10px;
+    --fallback-radius-lg: 12px;
+    --fallback-radius-xl: 14px;
+    --fallback-radius-2xl: 16px;
+    --fallback-radius-input: 16px;
+    --fallback-radius-pill: 999px;
+    --fallback-shadow-glass: 0 0.5px 0 0 rgba(255, 255, 255, 0.085) inset, 0 1px 2px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.14);
+    --fallback-shadow-glass-btn: 0 0.5px 0 0 rgba(255, 255, 255, 0.12) inset, 0 1px 2px rgba(0, 0, 0, 0.2);
+    --fallback-shadow-float: 0 8px 24px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.15);
+    --fallback-shadow-contained-card: 0 1px 2px rgba(0, 0, 0, 0.18), 0 3px 8px -3px rgba(0, 0, 0, 0.32);
+    --fallback-shadow-contained-popover: 0 3px 8px -3px rgba(0, 0, 0, 0.28), 0 10px 24px -12px rgba(0, 0, 0, 0.48);
+    --fallback-scroll-thumb: rgba(255, 255, 255, 0.12);
+    --fallback-scroll-thumb-hover: rgba(255, 255, 255, 0.2);
+  }
+}
+
+/* Semantic editor aliases. The host owns appearance; these names describe the
+   existing NLE surfaces rather than introducing project/document color fields. */
+:root {
+  --bg: var(--glass-solid);
+  --panel: color-mix(in srgb, var(--glass-card) 86%, var(--glass-solid));
+  --panel-sub: color-mix(in srgb, var(--glass-solid) 97%, var(--sys-label));
+  --panel-head: color-mix(in srgb, var(--glass-solid) 94%, var(--sys-label));
+  --panel-2: color-mix(in srgb, var(--glass-solid) 96%, var(--sys-label));
+  --well: color-mix(in srgb, var(--glass-solid) 95%, var(--sys-label));
+  --border: var(--sys-separator);
+  --text: var(--sys-label);
+  --dim: var(--sys-secondary);
+  --muted: var(--sys-secondary);
+  --accent: var(--action-primary);
+  --accent-2: var(--action-hover);
+  --danger: color-mix(in srgb, var(--accent-red) 70%, var(--sys-label));
+  --ui-warning: color-mix(in srgb, var(--accent-orange) 65%, var(--sys-label));
+  --ui-success: color-mix(in srgb, var(--accent-green) 60%, var(--sys-label));
+  --ui-danger-bg: color-mix(in srgb, var(--accent-red) 12%, var(--glass-solid));
+  --ui-danger-border: color-mix(in srgb, var(--accent-red) 35%, var(--glass-solid));
+  --ui-warning-bg: color-mix(in srgb, var(--accent-orange) 12%, var(--glass-solid));
+  --ui-warning-border: color-mix(in srgb, var(--accent-orange) 35%, var(--glass-solid));
+  --ui-success-bg: color-mix(in srgb, var(--accent-green) 12%, var(--glass-solid));
+  --ui-hover: color-mix(in srgb, var(--glass-solid) 91%, var(--sys-label));
+  --ui-border-hover: color-mix(in srgb, var(--sys-label) 28%, var(--glass-solid));
+  --ui-selection: var(--action-soft);
+  --ui-selection-border: var(--action-border);
+  --ui-overlay: color-mix(in srgb, var(--sys-label) 24%, transparent);
+  --ui-grid: color-mix(in srgb, var(--sys-label) 9%, transparent);
+  --ui-ruler-tick: color-mix(in srgb, var(--sys-label) 28%, var(--glass-solid));
+  --ui-ruler-text: var(--sys-secondary);
+  --ui-outside-range: color-mix(in srgb, var(--sys-label) 15%, transparent);
+  --ui-marker-label-bg: var(--glass-modal);
+  --ui-row-alt: color-mix(in srgb, var(--sys-label) 2%, transparent);
+  --ui-waveform: #c9f29b; /* Overlay on fixed, dark track identities. */
+  --ui-keyframe: #ffd166;
+  --ui-playhead: #e5484d;
+  --ui-range-in: #5eead4;
+  --ui-range-out: #fb923c;
+  --ui-handle: #ffffff;
+  --ui-handle-border: #1a1a22;
+  --ui-clip-text: #ffffff;
+  --ui-clip-border: #0007;
+  --ui-clip-shadow: #0006;
+  --ui-clip-selection: var(--action-primary);
+  --ui-clip-selection-primary: #ffffff;
+  --ui-clip-glow: color-mix(in srgb, var(--action-primary) 33%, transparent);
+  --ui-picture-bg: #000000;
+  --ui-picture-fg: #f8f8fc;
+  --ui-picture-muted: #c8c8ce;
+  --ui-picture-plate: rgba(0, 0, 0, .72);
+  --ui-picture-border: rgba(255, 255, 255, .22);
+  --ui-scope-bg: #0b0b0e;
+  --ui-scope-grid: rgba(255, 255, 255, .12);
+  --ui-scope-text: rgba(255, 255, 255, .55);
+  --ui-scope-line: rgba(255, 255, 255, .75);
+  --ui-scope-handle: #ffffff;
+  --ui-scope-handle-border: rgba(0, 0, 0, .8);
+  --ui-meter-off: #2a2a33;
+  --ui-font-sans: var(--font-sans);
+  --ui-font-mono: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+  /* Platform typography/density values are not part of appearance v1. */
+  --ui-text-body: 13px;
+  --ui-text-meta: 12px;
+  --ui-text-caption: 11px;
+  --ui-leading: 1.5;
+  --ui-header-height: 40px;
+  --ui-control-height: 24px;
+  --ui-header-action: 28px;
+  --ui-gap: 6px;
+  --track-h-video: 58px;
+  --track-h-audio: 42px;
+  --side-panel-w: 320px;
+}
+:root[data-theme="dark"] {
+  --well: color-mix(in srgb, var(--glass-solid) 68%, #000000);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) { --well: color-mix(in srgb, var(--glass-solid) 68%, #000000); }
+}
