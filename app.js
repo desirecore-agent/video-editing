@@ -1787,7 +1787,10 @@ async function syncFromServer(force) {
       await probeMissingMeta();
       return true;
     }
-    if (!force && (data.revision || 0) === (project.revision || 0)) return; // our own save
+    if (!force && (data.revision || 0) === (project.revision || 0)) {
+      runtime.confirmedRevision = data.revision || 0;
+      return true;
+    }
     // An edit from outside (an agent, another tab) on the open timeline becomes an undo step of its own,
     // so Ctrl+Z takes it back first instead of replaying an older step over it.
     const before = !state.compCtx && SeqLib.activeId(data) === SeqLib.activeId(project) ? undoSnapshot() : null;
@@ -17510,6 +17513,7 @@ async function requestSnapshotExport(opts = {}, range = exportRangeMode()) {
   try {
     if (!state.connected || !targetId) throw new Error("connect to the editor service before exporting");
     if (!(await flushSave())) throw new Error("the draft could not be saved; no export was submitted");
+    if (!(await syncFromServer())) throw new Error("the saved project could not be refreshed; no export was submitted");
     if (runtime.projectId !== targetId || runtime.pendingSubmit || runtime.saveFailed || runtime.saveTimer || saveContent() !== content)
       throw new Error("the project or draft changed while saving; review it before exporting");
     const revision = runtime.confirmedRevision;

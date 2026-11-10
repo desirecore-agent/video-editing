@@ -5,7 +5,7 @@
     "id": "0171a763-ad35-4b94-98b9-204782817b44",
     "name": "视频剪辑",
     "iconLetter": "剪",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "entrypoints": [
       {
         "id": "editor",
@@ -45,14 +45,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "5da4a1b2f3c5747e1fcf16849a53e5eb764c359a3947e392af232216bd023f19",
-      "size": 4709,
+      "sha256": "9294e0789394f54670caf26a4d70698019bbdfc20491822a9dc13cd3bd370e29",
+      "size": 5487,
       "role": "documentation"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "718e6ed8c60bfdecf8309439440da63ff4fc4299d2c2d0eba561025df0fb493b",
-      "size": 3998,
+      "sha256": "96bc49e233b64fe78cb88750f14e64399148f5dec408e9fc057c7a596bfe3a05",
+      "size": 4618,
       "role": "documentation"
     },
     {
@@ -63,8 +63,8 @@
     },
     {
       "path": "app.js",
-      "sha256": "9d3af5a8e3a681ef26c7cde6ef98747fa2d349dee1936a51a15a5563b5b34a65",
-      "size": 1034087,
+      "sha256": "99624b327c199e26196296389e7423ed1a597442791a63073a122b047d5c8455",
+      "size": 1034265,
       "role": "runtime"
     },
     {
@@ -75,8 +75,8 @@
     },
     {
       "path": "beats.js",
-      "sha256": "acc31419efe9f9f3e6a2e84c849b10981822eb02ab59df2c98775f11dbe3e485",
-      "size": 25687,
+      "sha256": "e2caee3439810fa0f299e7a321b09e33b9ccf6312dfda56deba805bb081c49a7",
+      "size": 26018,
       "role": "runtime"
     },
     {
@@ -135,8 +135,8 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "5ff8a254df44eea681fa704646243eecda5f4a7e4b2ab46869a9da6c48974023",
-      "size": 15098,
+      "sha256": "b1b78d47465352c0c0dc27a76e75131cbcef517680b790e39c2fe067de8a1b36",
+      "size": 15893,
       "role": "documentation"
     },
     {
@@ -213,8 +213,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "3bcff76e34232aa7568d3322bdd063ce3864ccaaf10c9f954ec805976debc231",
-      "size": 182010,
+      "sha256": "29c32c901ed954e3e3daf3519a2e5d787b98ae4e54da3bf758fd7e24e4ee4adf",
+      "size": 182964,
       "role": "documentation"
     },
     {
@@ -657,8 +657,8 @@
     },
     {
       "path": "mcp-server.js",
-      "sha256": "3ee6838a9d30605df680ef162d2993dbcba03031d17afed5253f33b034ae95fa",
-      "size": 161782,
+      "sha256": "36ffa59bcc2ca5017a160ffb7808c79c0997920c3602a1e542b940ea1e444ce5",
+      "size": 162098,
       "role": "runtime"
     },
     {
@@ -699,13 +699,13 @@
     },
     {
       "path": "npm-shrinkwrap.json",
-      "sha256": "83dfaf83306671b2d38977a94a55c58ca8eb584f8d9899ff64f8f3e34702f746",
+      "sha256": "7aaea8e134c4c5d34cf575c55db9b567eb3af0fc441f803bdec0c60ecfd8d575",
       "size": 353,
       "role": "runtime"
     },
     {
       "path": "package.json",
-      "sha256": "a871076211a2ca59deeac97cf2e49bf7e2992eb6dc054afae1effc64b0f860a3",
+      "sha256": "6ac7c1469f024e33b8a92e616fc9d12e985d859e097ae68dbc9299b61d3a36f5",
       "size": 1678,
       "role": "dependency"
     },
@@ -808,7 +808,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "393a970799dca213d8d4844a03b527f01ba3bf9691ee958429b8a5e79d298bdc"
+    "sha256": "57e8e541de03760141922642541e6867c512c2137aee9726c1ad790c34fe78eb"
   },
   "supportedPlatforms": [
     "darwin",
@@ -841,5 +841,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "205ca1f94ae71ce4b86984328ab9914d477fcc9428fd69c6dc5789f93de0e68b"
+  "releaseDigest": "81b20d78b65d4a94212f020888617c6c0651676ce495c94b728358b9c31d3228"
 }

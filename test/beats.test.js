@@ -4,6 +4,22 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const B = require("../beats");
 
+test("steady tones at different levels do not invent beats or a musical tempo", () => {
+  for (const frequency of [110, 440, 1000]) for (const amplitude of [0.02, 0.6]) {
+    const pcm = Float32Array.from({ length: 4 * B.SR }, (_, i) =>
+      amplitude * (1 + 0.002 * Math.sin(i * 0.017)) * Math.sin(2 * Math.PI * frequency * i / B.SR));
+    const result = B.analyze(pcm);
+    assert.equal(result.bpm, null, `${frequency}Hz at ${amplitude}`);
+    assert.deepEqual(result.beats, []);
+    assert.ok(result.energy.values.length > 0, "loudness analysis remains available");
+  }
+});
+
+test("a single transient does not establish a tempo", () => {
+  const result = B.analyze(clicks({ secs: 4, bpm: 10 }));
+  assert.equal(result.bpm, null);
+});
+
 /** A kick-drum track: a 60 Hz thump decaying over ~0.1 s at `at + k·60/bpm`, mono at `sr`. */
 function clicks({ bpm = 120, at = 0.3, secs = 20, sr = B.SR } = {}) {
   const x = new Float32Array(Math.round(secs * sr));

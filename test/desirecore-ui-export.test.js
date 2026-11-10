@@ -9,7 +9,7 @@ function world(over={}){
  const els={exportOverlay:node(),exportProgress:node(),exportTitle:node(),exportNote:node()};
  const response=(body,status=200)=>({ok:status>=200&&status<300,status,json:async()=>body});
  const env={runtime,state,project,els,saveContent:()=>JSON.stringify(project),exportRangeMode:()=> 'in-out',
-  flushSave:async()=>{saves++;return true;},toast:s=>toasts.push(s),
+  flushSave:async()=>{saves++;return true;},syncFromServer:async()=>true,toast:s=>toasts.push(s),
   document:{createElement:()=>({click(){downloads.push(this.href);}})},
   setTimeout:fn=>{queueMicrotask(fn);return 0;},
   fetch:async(url,opts)=>{requests.push({url,opts,body:opts?.body&&JSON.parse(opts.body)});if(url==='/api/export/request')return response({id:'x_original',status:'pending',snapshot:{id:'frozen-a'}});if(url.includes('/cancel'))return response({id:'x_original',status:'cancelled'});return response({id:'x_original',status:'done',src:'/exports/A.mp4',progress:1});},...over};
@@ -24,6 +24,27 @@ test('project switch or local edit while saving is not exported as another targe
 });
 test('UI409 admission leaves the draft and saved revision intact',async()=>{
  let w;w=world({fetch:async()=>w.response({error:'project identity/revision changed'},409)});const before=JSON.stringify(w.project);const r=await w.requestSnapshotExport({profile:'draft'});assert.match(r.error,/identity\/revision/);assert.equal(JSON.stringify(w.project),before);assert.equal(w.runtime.confirmedRevision,7);
+});
+test('export waits for the current saved revision before admitting a snapshot',async()=>{
+ let release,w;const refresh=new Promise(r=>release=r);
+ w=world({syncFromServer:async()=>{await refresh;w.runtime.confirmedRevision=8;return true;}});
+ const run=w.requestSnapshotExport({profile:'draft'});await new Promise(r=>setImmediate(r));
+ assert.equal(w.requests.length,0,'no stale revision is sent while refresh is pending');
+ release();const result=await run;assert.equal(result.jobId,'x_original');assert.equal(w.requests[0].body.revision,8);
+ assert.equal(w.project.text,'manual draft');
+});
+test('a server-confirmed document refreshes admission revision even when its content is already displayed',async()=>{
+ const runtime={projectId:'p_a',confirmedRevision:7},project={revision:8};
+ const env={runtime,project,state:{binTab:'project'},fetchSaved(){},loadLibraryFonts(){},fetchEncodeProfiles(){},
+  fetch:async()=>({ok:true,json:async()=>({revision:8,clips:[]}),headers:{get:()=> 'p_a'}})};
+ const names=Object.keys(env),sync=new Function(...names,slice('async function syncFromServer(','/** Populate a media entry')+';return syncFromServer;')(...names.map(k=>env[k]));
+ assert.equal(await sync(),true);assert.equal(runtime.confirmedRevision,8);
+});
+test('failed refresh and a changed project during refresh cannot export a stale or different draft',async()=>{
+ for(const kind of ['offline','switch','edit']){let w;w=world({syncFromServer:async()=>{if(kind==='switch')w.runtime.projectId='p_other';if(kind==='edit')w.project.text='new human edit';return kind!=='offline';}});
+  const result=await w.requestSnapshotExport({profile:'draft'});assert.ok(result.error);assert.equal(w.requests.length,0);
+  if(kind==='edit')assert.equal(w.project.text,'new human edit');
+ }
 });
 test('UI Fast passes exact saved target/range/profile and observes the original job',async()=>{
  const w=world();const r=await w.requestSnapshotExport({profile:'draft'});assert.equal(w.saves,1);assert.deepEqual(w.requests[0].body,{profile:'draft',range:'in-out',projectId:'p_a',revision:7,where:'headless'});assert.deepEqual(w.requests.map(x=>x.url),['/api/export/request','/api/export/job?id=x_original']);assert.equal(r.jobId,'x_original');assert.deepEqual(w.downloads,['/exports/A.mp4']);assert.equal(w.state.exporting,false,'live editor is not used as renderer or frozen');

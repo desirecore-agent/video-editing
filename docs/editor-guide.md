@@ -2112,6 +2112,8 @@ tab, else a headless browser.
 
 ## Remake a reference video (analyze → blueprint → rebuild)
 
+Steady tones and sub-threshold energy ripple do not establish beats or tempo: analysis returns no beats and `bpm:null` while retaining loudness measurements. With `registerMusic:false`, an existing audio track is reported as present but not extracted; `music:null` does not mean silence.
+
 Given a reference edit (a reel/montage the user likes), FableCut can analyze it
 and hand back an **edit blueprint** so the same idea can be rebuilt with
 different footage over the same music.
@@ -2744,6 +2746,10 @@ array; `{profile:"hq"}` returns one profile. `fablecut_status` shows the effecti
 
 
 ## DesireCore managed editing and export contract
+
+GUI export flushes local saves and refreshes the saved revision before snapshot admission. A changed draft/project or failed refresh stops admission; review the new state instead of exporting stale content. The server's revision guard remains authoritative for a concurrent write after that refresh.
+
+Verify the current runtime/job, download its returned export URL into the Agent's already authorized workspace through normal tools/approval, verify it, then attach that workspace path. App-data attachment access is not granted by installation, association or MCP. Never substitute an unauthorized source path or an older output after a failed approval/download.
 
 Only the service commits project changes. GUI saves carry their confirmed
 revision and original mutation ID; an unknown save result may retry that same
