@@ -1,8 +1,10 @@
 # 视频剪辑运行与数据合同
 
-产品名“视频剪辑”，版本 0.1.4。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
+产品名“视频剪辑”，版本 0.1.5。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
 
 ## 导出附件交付 / Export attachment delivery
+
+GUI 导出以本次同步实际应用的服务文档与修订准入，不能继续比较同步前内容。同步请求中新增的人工草稿/项目切换不被覆盖；后续元数据等待中的新编辑也拒绝导出。 / GUI admission uses the exact refreshed server document and revision. Concurrent human drafts or project switches are preserved; later edits during metadata work also refuse admission.
 
 核当前实例及原 job 完成回执，从该实例返回的导出 URL 经正常工具审批下载到智能体已授权工作目录，核大小、摘要和媒体，再交付该工作目录路径。保留已有结果，不以旧成片替代新文件。安装、关联或 MCP 不授予应用数据根的附件读取权限；下载/审批失败时保留失败，不改用未授权源绝对路径重发。
 

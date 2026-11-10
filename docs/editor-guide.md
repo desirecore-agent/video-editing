@@ -2488,6 +2488,8 @@ WebCodecs / Realtime export, and `/api/export/begin` all use this value; pass th
 
 ## Export
 
+GUI snapshot admission first flushes the original local draft, then refreshes the current service document and revision. The refresh is fenced by that local document and project identity: a human edit or project switch while the response is in flight is preserved and prevents export. Admission compares against the exact newly applied service document, captured before later metadata work, so a completed Agent edit can export on the first request without reopening the page. New edits during metadata work, a failed refresh or a later server revision conflict still refuse; there is no blind retry or live-renderer fallback.
+
 Export is the Export button → dialog, or `fablecut_export` from an agent (below).
 The fixed-input delivery path enables **Fast** through an independent prepared
 browser. The retained upstream WebCodecs and Realtime implementations described
