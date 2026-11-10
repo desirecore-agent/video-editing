@@ -80,7 +80,12 @@
     }
     let oMax = 0;
     for (let i = 0; i < nFrames; i++) if (O[i] > oMax) oMax = O[i];
-    if (oMax > 0) for (let i = 0; i < nFrames; i++) O[i] /= oMax;
+    // Do not amplify carrier/windowing or codec ripple into full-strength onsets.
+    // The floor is relative to signal energy, so quiet rhythmic music still works.
+    const meanEnergy = E.reduce((sum, value) => sum + value, 0) / nFrames;
+    if (meanEnergy > 1e-10 && oMax > meanEnergy * 0.08) {
+      for (let i = 0; i < nFrames; i++) O[i] /= oMax;
+    } else O.fill(0);
 
     // peak-pick beats: local max, above an adaptive floor, min 0.25 s apart
     const frameT = (i) => Math.round(((i * HOP + WIN / 2) / SR) * 1000) / 1000;
@@ -113,7 +118,7 @@
       const w = Math.exp(-0.5 * Math.pow(Math.log2(cand / 120) / 1.0, 2));
       if (s * w > best) { best = s * w; bestLag = lag; }
     }
-    if (bestLag) {
+    if (bestLag && beats.length >= 4) {
       bpm = 60 / (bestLag * HOP / SR);
       while (bpm < 70) bpm *= 2;
       while (bpm > 180) bpm /= 2;

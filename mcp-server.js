@@ -1904,7 +1904,9 @@ async function callTool(name, args, attempt = 0) {
         musicDir: MEDIA_DIR,
         srcUrl: "/media/" + encodeURIComponent(path.basename(file)),
       });
-      let musicNote = "Reference has no audio track — no music extracted.";
+      let musicNote = !bp.hasAudio ? "Reference has no audio track — no music extracted."
+        : args.registerMusic === false ? "Audio track detected; music extraction was not requested."
+        : "Audio track detected, but music extraction did not produce an artifact.";
       if (bp.music) {
         bp.music.src = "/media/" + encodeURIComponent(bp.music.name);
         // merge-safe append, same protocol as fablecut_import_media
@@ -1927,7 +1929,7 @@ async function callTool(name, args, attempt = 0) {
         JSON.stringify(bp, null, 2));
       return JSON.stringify(bp, null, 2) + "\n\n" + [
         musicNote,
-        `REMAKE RECIPE: 1) set project width/height/fps to ${bp.width}x${bp.height} @ ${bp.fps} — 2) write beats[] into project markers — 3) extracted music on A1 — 4) one clip per shots[] entry at the same start/duration on V1 (hard cuts; footage energy should track each shot's energy value) — 5) biggest moment on drop (${bp.drop}s)${bp.bpm ? ` — tempo ${bp.bpm} BPM` : ""}. Full recipe: fablecut_docs → "Remake a reference video".`,
+        `REMAKE RECIPE: 1) set project width/height/fps to ${bp.width}x${bp.height} @ ${bp.fps} — 2) use detected beats[] only when present — 3) ${bp.music ? "extracted music on A1" : "no music artifact was extracted"} — 4) one clip per shots[] entry at the same start/duration on V1 (hard cuts; footage energy is relative loudness) — 5) ${bp.drop == null ? "no drop detected" : `biggest moment on drop (${bp.drop}s)`}${bp.bpm ? ` — tempo ${bp.bpm} BPM` : " — no musical tempo established"}. Full recipe: fablecut_docs → "Remake a reference video".`,
       ].join("\n");
     }
     case "fablecut_import_media": {

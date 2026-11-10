@@ -1,6 +1,6 @@
 {
   "name": "@desirecore-agent/video-editing",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "视频剪辑 — DesireCore managed FableCut editor, compositor and MCP tools.",
   "main": "server.js",
   "bin": {
