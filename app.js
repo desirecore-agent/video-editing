@@ -1750,8 +1750,12 @@ function listenSSE() {
    e.g. Claude — wrote it). Our own saves land at our exact local revision, so
    they compare equal and are skipped without any timing heuristics. Deferred
    during gestures/exports and re-run when they end (runtime.pendingSync). */
-/** True when the server's document was loaded (a later caller may rely on it). */
-async function syncFromServer(force) {
+/** Export callers may fence their local input and receive the exact applied document. */
+async function syncFromServer(force, admission) {
+  const localMatches = () => !admission || (runtime.projectId === admission.projectId
+    && !runtime.saveTimer && !state.gesture && !state.exporting && saveContent() === admission.content);
+  const confirmed = () => admission ? { projectId: runtime.projectId, revision: runtime.confirmedRevision, content: saveContent() } : true;
+  if (!localMatches()) { runtime.pendingSync = true; return false; }
   if (runtime.frozenExportInput) return false;
   if (runtime.pendingSubmit || runtime.saveFailed) {runtime.pendingSync=true;return false;}
   if (state.gesture || state.exporting) { runtime.pendingSync = true; return false; }
@@ -1771,6 +1775,10 @@ async function syncFromServer(force) {
     if (!data || !Array.isArray(data.clips)) return;
     // another project was opened (the dashboard, another tab, an agent)
     const pid = res.headers.get("X-FableCut-Project");
+    if (!localMatches() || (admission && pid && pid !== admission.projectId)) {
+      runtime.pendingSync = true;
+      return false;
+    }
     const switched = !!(pid && runtime.projectId && pid !== runtime.projectId);
     if (pid) runtime.projectId = pid;
     if (switched) {
@@ -1784,12 +1792,13 @@ async function syncFromServer(force) {
       syncCompCrumb();
       if (!pj.selfSwitch) toast(`Switched to “${project.name}”`);
       if (projectsOpen()) pjLoad();
+      const refreshed = confirmed();
       await probeMissingMeta();
-      return true;
+      return refreshed;
     }
     if (!force && (data.revision || 0) === (project.revision || 0)) {
       runtime.confirmedRevision = data.revision || 0;
-      return true;
+      return confirmed();
     }
     // An edit from outside (an agent, another tab) on the open timeline becomes an undo step of its own,
     // so Ctrl+Z takes it back first instead of replaying an older step over it.
@@ -1811,8 +1820,9 @@ async function syncFromServer(force) {
     // "Compare with now" was against the document before this change
     // (always: a comparison still on its way was made against the old document too)
     if (pj.verOf === runtime.projectId) { const had = pj.verDiff.size; pjDropDiffs(); if (had && projectsOpen()) renderProjectGrid(); }
+    const refreshed = confirmed();
     await probeMissingMeta();
-    return true;
+    return refreshed;
   } catch { }
   return false;
 }
@@ -17513,10 +17523,14 @@ async function requestSnapshotExport(opts = {}, range = exportRangeMode()) {
   try {
     if (!state.connected || !targetId) throw new Error("connect to the editor service before exporting");
     if (!(await flushSave())) throw new Error("the draft could not be saved; no export was submitted");
-    if (!(await syncFromServer())) throw new Error("the saved project could not be refreshed; no export was submitted");
     if (runtime.projectId !== targetId || runtime.pendingSubmit || runtime.saveFailed || runtime.saveTimer || saveContent() !== content)
       throw new Error("the project or draft changed while saving; review it before exporting");
-    const revision = runtime.confirmedRevision;
+    const refreshed = await syncFromServer(false, { projectId: targetId, content });
+    if (!refreshed) throw new Error("the saved project could not be refreshed; no export was submitted");
+    if (runtime.projectId !== targetId || refreshed.projectId !== targetId || runtime.pendingSubmit || runtime.saveFailed
+      || runtime.saveTimer || runtime.confirmedRevision !== refreshed.revision || saveContent() !== refreshed.content)
+      throw new Error("the project or draft changed while refreshing; review it before exporting");
+    const revision = refreshed.revision;
     if (!Number.isSafeInteger(revision)) throw new Error("the saved project revision is unknown; no export was submitted");
     if (current.cancelRequested) return { cancelled: true };
     let res;

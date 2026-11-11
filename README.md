@@ -10,7 +10,7 @@ DesireCore owns installation, permissions, the process lifecycle, runtime genera
 
 Exports become attachments only after normal authorized delivery. Check the completed job and the current managed instance, download its returned export URL to the Agent's already authorized workspace, verify the file, and attach that workspace path. Installing/binding the app or connecting MCP does not grant attachment access to the application data root. A failed approval/download remains a failure; never retry delivery with the unauthorized source path or an older movie.
 
-The export button refreshes the saved revision before snapshot admission. A conflicting human edit, project switch, or failed refresh stops admission and preserves the draft. Reference analysis reports no tempo for steady tones; disabling music extraction does not mean the reference lacks audio.
+The export button refreshes the saved document and revision before snapshot admission. It accepts that exact server document, while a human edit or project switch during refresh stops admission and preserves the draft. Reference analysis reports no tempo for steady tones; disabling music extraction does not mean the reference lacks audio.
 
 Use Node 22 or newer from DesireCore's managed runtime PATH. Native FFmpeg, ffprobe and a headless browser are prepared explicitly in the application's data directory; see [the runtime and backup contract](desirecore/RUNTIME.md). No developer machine paths or native binaries are bundled.
 

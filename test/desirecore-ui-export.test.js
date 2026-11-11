@@ -9,7 +9,7 @@ function world(over={}){
  const els={exportOverlay:node(),exportProgress:node(),exportTitle:node(),exportNote:node()};
  const response=(body,status=200)=>({ok:status>=200&&status<300,status,json:async()=>body});
  const env={runtime,state,project,els,saveContent:()=>JSON.stringify(project),exportRangeMode:()=> 'in-out',
-  flushSave:async()=>{saves++;return true;},syncFromServer:async()=>true,toast:s=>toasts.push(s),
+  flushSave:async()=>{saves++;return true;},syncFromServer:async()=>({projectId:runtime.projectId,revision:runtime.confirmedRevision,content:JSON.stringify(project)}),toast:s=>toasts.push(s),
   document:{createElement:()=>({click(){downloads.push(this.href);}})},
   setTimeout:fn=>{queueMicrotask(fn);return 0;},
   fetch:async(url,opts)=>{requests.push({url,opts,body:opts?.body&&JSON.parse(opts.body)});if(url==='/api/export/request')return response({id:'x_original',status:'pending',snapshot:{id:'frozen-a'}});if(url.includes('/cancel'))return response({id:'x_original',status:'cancelled'});return response({id:'x_original',status:'done',src:'/exports/A.mp4',progress:1});},...over};
@@ -27,7 +27,7 @@ test('UI409 admission leaves the draft and saved revision intact',async()=>{
 });
 test('export waits for the current saved revision before admitting a snapshot',async()=>{
  let release,w;const refresh=new Promise(r=>release=r);
- w=world({syncFromServer:async()=>{await refresh;w.runtime.confirmedRevision=8;return true;}});
+ w=world({syncFromServer:async()=>{await refresh;w.runtime.confirmedRevision=8;return {projectId:w.runtime.projectId,revision:8,content:JSON.stringify(w.project)};}});
  const run=w.requestSnapshotExport({profile:'draft'});await new Promise(r=>setImmediate(r));
  assert.equal(w.requests.length,0,'no stale revision is sent while refresh is pending');
  release();const result=await run;assert.equal(result.jobId,'x_original');assert.equal(w.requests[0].body.revision,8);
@@ -41,10 +41,42 @@ test('a server-confirmed document refreshes admission revision even when its con
  assert.equal(await sync(),true);assert.equal(runtime.confirmedRevision,8);
 });
 test('failed refresh and a changed project during refresh cannot export a stale or different draft',async()=>{
- for(const kind of ['offline','switch','edit']){let w;w=world({syncFromServer:async()=>{if(kind==='switch')w.runtime.projectId='p_other';if(kind==='edit')w.project.text='new human edit';return kind!=='offline';}});
+ for(const kind of ['offline','switch','edit']){let w;w=world({syncFromServer:async()=>{const content=JSON.stringify(w.project);if(kind==='switch')w.runtime.projectId='p_other';if(kind==='edit')w.project.text='new human edit';return kind==='offline'?false:{projectId:w.runtime.projectId,revision:7,content};}});
   const result=await w.requestSnapshotExport({profile:'draft'});assert.ok(result.error);assert.equal(w.requests.length,0);
   if(kind==='edit')assert.equal(w.project.text,'new human edit');
  }
+});
+function synchronizedWorld(options={}){
+ let sync;const w=world({syncFromServer:(...args)=>sync(...args)});
+ Object.assign(w.project,{revision:7,clips:[],media:[]});Object.assign(w.runtime,{undo:[],redo:[]});w.state.binTab='project';
+ const incoming={...w.project,revision:8,text:'agent changed volume'};
+ const env={...w.env,fetchSaved(){},loadLibraryFonts(){},fetchEncodeProfiles(){},
+  fetch:async()=>{if(options.waitForReply)await options.waitForReply;return {ok:true,json:async()=>incoming,headers:{get:()=> 'p_a'}};},
+  applyProject:data=>{Object.assign(w.project,data);w.runtime.confirmedRevision=data.revision;},
+  SeqLib:{activeId:()=> 'seq'},undoSnapshot:()=>JSON.stringify(w.project),outsideEditStep:()=>null,pushUndo(){},
+  syncCompCrumb(){},pj:{verOf:null},probeMissingMeta:options.probeMissingMeta||(async()=>{})};
+ const names=Object.keys(env);sync=new Function(...names,slice('async function syncFromServer(','/** Populate a media entry')+';return syncFromServer;')(...names.map(k=>env[k]));
+ return w;
+}
+test('actual server refresh of content and revision exports the latest document on the first request',async()=>{
+ const w=synchronizedWorld();const result=await w.requestSnapshotExport({profile:'draft'});
+ assert.equal(result.error,undefined);assert.equal(result.jobId,'x_original');
+ assert.equal(w.requests[0].body.revision,8);assert.equal(w.project.text,'agent changed volume');
+});
+test('actual refresh does not overwrite a human draft or switch that arrives during the fetch',async()=>{
+ for(const kind of ['edit','switch']){
+  let release;const waitForReply=new Promise(r=>release=r),w=synchronizedWorld({waitForReply});
+  const running=w.requestSnapshotExport({profile:'draft'});await new Promise(r=>setImmediate(r));
+  if(kind==='edit'){w.project.text='new human draft';w.runtime.saveTimer=1;}else w.runtime.projectId='p_other';
+  release();const result=await running;assert.ok(result.error);assert.equal(w.requests.length,0);
+  if(kind==='edit')assert.equal(w.project.text,'new human draft');else assert.equal(w.runtime.projectId,'p_other');
+ }
+});
+test('a human edit after the server document applies is not mistaken for the refreshed export input',async()=>{
+ let release;const probing=new Promise(r=>release=r),w=synchronizedWorld({probeMissingMeta:()=>probing});
+ const running=w.requestSnapshotExport({profile:'draft'});await new Promise(r=>setImmediate(r));
+ assert.equal(w.project.text,'agent changed volume');w.project.text='human edit during metadata';
+ release();const result=await running;assert.ok(result.error);assert.equal(w.requests.length,0);assert.equal(w.project.text,'human edit during metadata');
 });
 test('UI Fast passes exact saved target/range/profile and observes the original job',async()=>{
  const w=world();const r=await w.requestSnapshotExport({profile:'draft'});assert.equal(w.saves,1);assert.deepEqual(w.requests[0].body,{profile:'draft',range:'in-out',projectId:'p_a',revision:7,where:'headless'});assert.deepEqual(w.requests.map(x=>x.url),['/api/export/request','/api/export/job?id=x_original']);assert.equal(r.jobId,'x_original');assert.deepEqual(w.downloads,['/exports/A.mp4']);assert.equal(w.state.exporting,false,'live editor is not used as renderer or frozen');
