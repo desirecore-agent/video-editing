@@ -32,6 +32,8 @@ FFmpeg/ffprobe 来自维护者 ffmpeg-static 的固定发布，按各目标的�
 
 macOS/Linux ZIP 解压使用系统 `unzip`，Windows 使用系统 `tar.exe`；缺少时明确失败，应用不安装系统工具。Linux headless shell 还依赖官方 Chrome 所需的系统图形/字体库；真实发行环境应按系统包管理器满足这些依赖及浏览器 sandbox 前提。CI 的 native dependency fixture 仅核固定资产、版本及无头文档：Linux 一次性探测为适配 runner AppArmor 使用 `--no-sandbox`，明确记录 `appExportVerified:false`、`productionSandboxVerified:false`，不算生产导出或原生 GUI 验收，也不改变应用的生产启动参数。应用不自动运行 sudo、关闭系统权限或改变系统 sandbox。Node 本身保留平台运行时随附的完整许可。
 
+Windows Chromium 的子进程可能在运行时向浏览器可执行文件同目录追加 `debug.log`，例如网络 TLS 握手失败后。校验时把该目录内未登记在原回执中的单链接常规 `debug.log` 视作运行诊断。原回执登记的文件仍逐个比对 SHA，其他新增文件或该位置的目录、链接继续触发完整性错误。
+
 ## 材料和数据归属
 
 `node desirecore/release.js --output <新目录>` 只固定材料，不安装、启动或上传应用。单文件最多 32 MiB，总展开最多 128 MiB，最多 2048 个文件。普通源码、UI、Schema、手册和许可入包；`test/`、诊断、用户工程、media、exports、安装依赖、原生缓存、`.mcp.json` 与上游发布元数据不入包。Chromium 不通过拆块或扩大预算塞入材料。`app-release-c14n-v1` 对象键排序、files 按路径排序并排除 releaseDigest，文件列表不自引清单。source 工作树摘要覆盖实际字节，不能用 checkout HEAD 冒充未提交适配的来源。
