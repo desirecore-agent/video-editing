@@ -5,6 +5,7 @@
    so external MCP clients can edit the timeline programmatically.
    ═══════════════════════════════════════════════════════════════════════════ */
 "use strict";
+const TextEmphasis = self.FableCutTextEmphasis;
 
 /* Editor chrome only. Compositor props and film colours never read this palette. */
 function uiColor(key, fallback) {
@@ -6920,6 +6921,9 @@ function renderInspector(lite) {
         <button class="btn tiny${p.glowColor ? "" : " toggle on"}" data-action="glow-auto" title="Glow uses the text color">auto</button>`, "", "glowColor")}
     </div>
     <div class="insp-section"><h3>${editorLabel("Title & caption")}</h3>
+      ${row("Keyword emphasis", `<input type="text" data-emphasis-new placeholder="${escapeHtml(editorText("Keyword or phrase"))}"><button class="btn tiny" data-emphasis-add>${editorLabel("Add")}</button>`)}
+      ${(p.emphasis || []).map((r, i) => `<div class="insp-row"><label>${escapeHtml(r.text)}</label><input type="color" data-emphasis-color="${i}" value="${r.color}"><button class="btn tiny" data-emphasis-remove="${i}">${editorLabel("Remove")}</button></div>`).join("")}
+      <p class="insp-note">${editorLabel("Selected keywords keep their colour throughout the caption, independently of speech timing.")}</p>
       ${row("Title style", `<button type="button" class="btn tiny style-picker-btn" data-style-open title="Pick a style — hover to preview it live">${(TITLE_STYLES[c.styleName] || {}).label || "Choose…"} ▾</button>
         <button class="btn tiny" data-action="title-shuffle" title="Random style">Shuffle</button>`)}
       ${row("Animation", `<select data-k="textAnim">${TEXT_ANIMS.map((a) => `<option ${a === p.textAnim ? "selected" : ""}>${a}</option>`).join("")}</select>`, "", "textAnim")}
@@ -6932,6 +6936,24 @@ function renderInspector(lite) {
   }
   els.inspector.innerHTML = html;
   inspSyncStamp = inspStampNow(); // full rebuild already reflects this state
+  const saveEmphasis = rules => {
+    if (isGroupLocked(c)) { toastLocked(); return; }
+    TextEmphasis.validate(rules); pushUndo();
+    if (rules.length) c.props.emphasis = rules; else delete c.props.emphasis;
+    state.dirtyTimeline = true; scheduleSave(); renderInspector();
+  };
+  els.inspector.querySelector("[data-emphasis-add]")?.addEventListener("click", () => {
+    const text = els.inspector.querySelector("[data-emphasis-new]").value.trim();
+    if (!text) return;
+    try { saveEmphasis([...(c.props.emphasis || []), { text, color: TextEmphasis.DEFAULT_COLOR }]); }
+    catch (e) { toast(e.message); }
+  });
+  els.inspector.querySelectorAll("[data-emphasis-color]").forEach(input => input.addEventListener("change", () => {
+    saveEmphasis((c.props.emphasis || []).map((r, i) => i === +input.dataset.emphasisColor ? { ...r, color: input.value } : r));
+  }));
+  els.inspector.querySelectorAll("[data-emphasis-remove]").forEach(button => button.addEventListener("click", () => {
+    saveEmphasis((c.props.emphasis || []).filter((_, i) => i !== +button.dataset.emphasisRemove));
+  }));
   els.inspector.querySelectorAll("label.insp-reset[data-reset]").forEach((lab) => {
     lab.addEventListener("click", (e) => {
       const all = e.ctrlKey || e.metaKey;
@@ -12951,6 +12973,7 @@ function drawClipPicture(c, W, H, t, layered) {
   } else if (c.kind === "video") {
     const frame = runtime.exportFrames && runtime.exportFrames.get(c.id);
     src = frame || getClipEl(c);
+    if (state.rendering) assertExportVideoFrame(c, t);
     if (frame) { sw = frame.displayWidth; sh = frame.displayHeight; }
     else if (src) { sw = src.videoWidth; sh = src.videoHeight; }
   } else if (c.kind === "comp") {
@@ -15024,11 +15047,14 @@ function drawTextOnPath(c, p, local) {
     const base = (+p.pathOffset || 0) / 100 * track(line).length;
     let d = p.pathAlign === "center" ? base - total / 2 : p.pathAlign === "end" ? base - total : base;
     lineRuns.push({ from: d, to: d + total });
-    let inWord = false;
+    let inWord = false, textOffset = 0;
+    const emphasis = TextEmphasis.ranges(ln, p.emphasis, p.uppercase);
     gs.forEach((g, j) => {
       const space = !g.trim();
       if (!space && !inWord) { inWord = true; } else if (space && inWord) { inWord = false; wi++; }
-      glyphs.push({ g, w: ws[j], d: d + ws[j] / 2, line, word: wi, ci: space ? -1 : ci, gi, space });
+      const color = emphasis.find(r => textOffset >= r.start && textOffset < r.end)?.color;
+      glyphs.push({ g, w: ws[j], d: d + ws[j] / 2, line, word: wi, ci: space ? -1 : ci, gi, space, color });
+      textOffset += g.length;
       if (!space) ci++;
       gi++;
       d += ws[j] + ls;
@@ -15105,7 +15131,7 @@ function drawTextOnPath(c, p, local) {
     }
     if (p.glow > 0) { ctx2d.shadowColor = p.glowColor || p.color || "#fff"; ctx2d.shadowBlur = (+p.glow) * size / 40; }
     else if (shadowBlur > 0) { ctx2d.shadowColor = "rgba(0,0,0,.7)"; ctx2d.shadowBlur = shadowBlur; ctx2d.shadowOffsetY = shadowBlur / 3; }
-    ctx2d.fillStyle = lit ? p.highlightColor || "#ffd166" : fill();
+    ctx2d.fillStyle = q.color || (lit ? p.highlightColor || "#ffd166" : fill());
     ctx2d.fillText(q.g, 0, 0);
     if (p.glow > 0) ctx2d.fillText(q.g, 0, 0);
     ctx2d.globalAlpha = keep;
@@ -15621,8 +15647,23 @@ function drawText(c, p, local) {
     g.addColorStop(1, p.color2);
     return g;
   };
-  const paint = (str, x, y, alpha = 1, rtl = false, fill = null) => {
+  const paint = (str, x, y, alpha = 1, rtl = false, fill = null, withEmphasis = true) => {
     if (alpha <= 0) return;
+    const ranges = withEmphasis ? TextEmphasis.ranges(str, p.emphasis, p.uppercase) : [];
+    if (ranges.length) {
+      // Clip full shaped text, rather than painting substrings: kerning and
+      // connected glyphs keep exactly the same layout as the uncoloured line.
+      paint(str, x, y, alpha, rtl, fill, false);
+      const width = ctx2d.measureText(str).width;
+      for (const r of ranges) {
+        const a = ctx2d.measureText(str.slice(0, r.start)).width;
+        const b = ctx2d.measureText(str.slice(0, r.end)).width;
+        ctx2d.save(); ctx2d.beginPath();
+        ctx2d.rect(rtl ? x + width / 2 - b : x - width / 2 + a, y - size * 2, b - a, size * 4);
+        ctx2d.clip(); paint(str, x, y, alpha, rtl, r.color, false); ctx2d.restore();
+      }
+      return;
+    }
     const keep = ctx2d.globalAlpha;
     const prevDir = ctx2d.direction;
     ctx2d.globalAlpha = keep * clamp(alpha, 0, 1);
@@ -17309,6 +17350,19 @@ async function exportDecodeFrame(c, t) {
     return false;
   }
 }
+/** Every export frame needs a real picture from each enabled, active video.
+ * Audio-only playback can reach HAVE_CURRENT_DATA with videoWidth=0 (unsupported
+ * HEVC in the headless renderer). A running clock is not a decoded picture. */
+function assertExportVideoFrame(c, t) {
+  const frame = runtime.exportFrames && runtime.exportFrames.get(c.id);
+  const el = frame || getClipEl(c);
+  const valid = frame ? frame.displayWidth > 0 && frame.displayHeight > 0
+    : el && !el.error && el.readyState >= 2 && el.videoWidth > 0 && el.videoHeight > 0;
+  if (!valid) {
+    const m = getMedia(c.mediaId);
+    throw new Error(`VIDEO_FRAME_UNAVAILABLE: clip ${c.id} (${m?.name || m?.src || c.mediaId}) at ${t.toFixed(3)}s has no decoded video picture`);
+  }
+}
 async function seekVideosTo(t, { queueBusy } = {}) {
   const fps = projectFps();
   const frameMs = 1000 / fps;
@@ -17340,7 +17394,8 @@ async function seekVideosTo(t, { queueBusy } = {}) {
     if (c.kind !== "video") continue;
     if (!clipRenders(c)) continue;
     if (decoded.has(c.id)) continue;
-    const el = getClipEl(c); if (!el) continue;
+    const el = getClipEl(c);
+    if (!el) { if (activeAt(c, t)) assertExportVideoFrame(c, t); continue; }
     if (!activeAt(c, t)) {
       if (!el.paused) el.pause();
       if (el._fcPrevMuted != null) {
@@ -17352,6 +17407,7 @@ async function seekVideosTo(t, { queueBusy } = {}) {
       continue;
     }
     const mt = mediaTimeAt(c, t);
+    if (el.error || el.readyState >= 2) assertExportVideoFrame(c, t);
     const local = clamp(t - c.start, 0, c.duration);
     const sp = clamp(kfChannel(c, "speed", local, clipSpeed(c)), 0.1, 8);
     // One timeline frame in media-time
@@ -17388,6 +17444,9 @@ async function seekVideosTo(t, { queueBusy } = {}) {
     }
   }
   await Promise.all(waits);
+  for (const c of mediaClips()) {
+    if (c.kind === "video" && clipRenders(c) && activeAt(c, t)) assertExportVideoFrame(c, t);
+  }
   for (const c of restoreGain) {
     const chain = runtime.clipGain.get(c.id);
     if (chain?.vol) driveClipChain(chain, c, evalProps(c, t), t);
@@ -20698,6 +20757,8 @@ function repaintEditorTheme() {
 }
 window.addEventListener("desirecore:themechange", repaintEditorTheme);
 window.addEventListener("video-editor:localechange", () => {
+  const emphasisInput = els.inspector.querySelector("[data-emphasis-new]");
+  if (emphasisInput) emphasisInput.placeholder = editorText("Keyword or phrase");
   syncBinTools();
   if (!$("#exportQueue")?.classList.contains("hidden")) renderQueue();
   if (!$("#exportSetup")?.classList.contains("hidden")) refreshDeliveryNotes();
