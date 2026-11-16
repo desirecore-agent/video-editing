@@ -63,8 +63,8 @@
     },
     {
       "path": "app.js",
-      "sha256": "c8e5e6ed7e14bc0258cb301e592408fe6798add2668ee7d185871838dbdfafca",
-      "size": 1041799,
+      "sha256": "988ec86933bf100b991f2bd70739a9cbe13b27af85aacde4b8e0b99a379a1c11",
+      "size": 1042407,
       "role": "runtime"
     },
     {
@@ -135,8 +135,8 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "25dc506b156a6a1c40e11812ec8e984e915534325c98efc224ef9a1358e7ed9f",
-      "size": 17228,
+      "sha256": "dfd4b23d42c2abbecb302d02e61aac1bc84dccf1ac33ee730f9525569886cb11",
+      "size": 17424,
       "role": "documentation"
     },
     {
@@ -213,8 +213,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "738b02f6e606e50eb9e55bbd16ceff957108d0a5d891afeff672297bb3951b2b",
-      "size": 185752,
+      "sha256": "1e2bd36c15f2b2db267ce0ec460594714f583a7f5bd1023354f8ed0697d530de",
+      "size": 186259,
       "role": "documentation"
     },
     {
@@ -717,8 +717,8 @@
     },
     {
       "path": "project-ops.js",
-      "sha256": "e449676fffb0b48a119c0a0898a3ad2cac20862b17a8fc177be79bcac6421367",
-      "size": 97229,
+      "sha256": "7dea3a68c56104e2946903de005c367f39599667cd7532dba43fa970fbb1395f",
+      "size": 97929,
       "role": "runtime"
     },
     {
@@ -783,8 +783,8 @@
     },
     {
       "path": "text-emphasis.js",
-      "sha256": "f6deb42b62cdcba1c8400a8226606be8db642f947d1704864c5d75ffcdd690a7",
-      "size": 2805,
+      "sha256": "2c5680c3389ad86808e427671deb1a44d6861458ba4602e14cb804770505c547",
+      "size": 4395,
       "role": "runtime"
     },
     {
@@ -826,7 +826,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "bb280899ec2843a31fdbe5d61307195bcff2d5e1f66f323b4d498576441828ae"
+    "sha256": "06c48c1b23dec1414317ea1accd7b1b06f3e6a11d9aa8e2853474a4e2301fee9"
   },
   "supportedPlatforms": [
     "darwin",
@@ -859,5 +859,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "624f1e78bfb3721129ab98bb60acae9e5c6296adafe98c32043ea51f00dc87e2"
+  "releaseDigest": "1af7657a359c74a5c5e0a9633f450e0232df828cb22e86de1596c947cd5f2b40"
 }

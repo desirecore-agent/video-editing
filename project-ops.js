@@ -64,32 +64,36 @@
         description: "Complete active timeline; an empty array is an explicit empty timeline." },
     },
   };
-  function checkProjectStructure(doc) {
-    const bad = at => { throw new Error(`Invalid complete project: ${at}`); };
-    const object = (v, at) => { if (!v || typeof v !== "object" || Array.isArray(v)) bad(`${at} must be an object`); };
-    const fields = (v, schema, at) => {
-      object(v, at);
-      for (const k of schema.required) if (!Object.hasOwn(v, k)) bad(`${at}.${k} is required; PUT replaces the complete document`);
-      for (const [k, rule] of Object.entries(schema.properties)) {
-        const value = v[k];
-        if (rule.type === "array") { if (!Array.isArray(value)) bad(`${at}.${k} must be an array`); continue; }
-        if (rule.type === "integer" ? !Number.isInteger(value) : typeof value !== rule.type) bad(`${at}.${k} must be ${rule.type}`);
-        if (typeof value === "number" && (!Number.isFinite(value) || (rule.minimum != null && value < rule.minimum)
-          || (rule.exclusiveMinimum != null && value <= rule.exclusiveMinimum))) bad(`${at}.${k} is out of range`);
-        if (rule.minLength && value.length < rule.minLength) bad(`${at}.${k} must not be empty`);
-        if (rule.enum && !rule.enum.includes(value)) bad(`${at}.${k} has an unknown kind`);
-      }
-    };
-    fields(doc, PROJECT_SCHEMA, "project");
-    for (const key of ["media", "clips"]) {
-      const ids = new Set();
-      for (const [i, item] of doc[key].entries()) {
-        fields(item, PROJECT_SCHEMA.properties[key].items, `${key}[${i}]`);
-        if (ids.has(item.id)) bad(`${key}[${i}].id is duplicated: ${item.id}`);
-        ids.add(item.id);
-        if (item.props != null) object(item.props, `${key}[${i}].props`);
-      }
+  const invalidStructure = at => { throw new Error(`Invalid complete project: ${at}`); };
+  function checkObject(value, at) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) invalidStructure(`${at} must be an object`);
+  }
+  function checkStructureFields(value, schema, at) {
+    checkObject(value, at);
+    for (const k of schema.required) if (!Object.hasOwn(value, k)) invalidStructure(`${at}.${k} is required; PUT replaces the complete document`);
+    for (const [k, rule] of Object.entries(schema.properties)) {
+      const v = value[k];
+      if (rule.type === "array") { if (!Array.isArray(v)) invalidStructure(`${at}.${k} must be an array`); continue; }
+      if (rule.type === "integer" ? !Number.isInteger(v) : typeof v !== rule.type) invalidStructure(`${at}.${k} must be ${rule.type}`);
+      if (typeof v === "number" && (!Number.isFinite(v) || (rule.minimum != null && v < rule.minimum)
+        || (rule.exclusiveMinimum != null && v <= rule.exclusiveMinimum))) invalidStructure(`${at}.${k} is out of range`);
+      if (rule.minLength && v.length < rule.minLength) invalidStructure(`${at}.${k} must not be empty`);
+      if (rule.enum && !rule.enum.includes(v)) invalidStructure(`${at}.${k} has an unknown kind`);
     }
+  }
+  function checkStructureItems(items, schema, at) {
+    if (!Array.isArray(items)) invalidStructure(`${at} must be an array`);
+    const ids = new Set(); // identities belong to this one timeline/registry
+    for (const [i, item] of items.entries()) {
+      checkStructureFields(item, schema, `${at}[${i}]`);
+      if (ids.has(item.id)) invalidStructure(`${at}[${i}].id is duplicated: ${item.id}`);
+      ids.add(item.id);
+      if (item.props != null) checkObject(item.props, `${at}[${i}].props`);
+    }
+  }
+  function checkProjectStructure(doc) {
+    checkStructureFields(doc, PROJECT_SCHEMA, "project");
+    for (const key of ["media", "clips"]) checkStructureItems(doc[key], PROJECT_SCHEMA.properties[key].items, key);
   }
 
   // the UI persists default-valued props on every clip; the compact view hides
@@ -1347,9 +1351,16 @@
         if (n) c.props.shapes = n; else delete c.props.shapes;
       }
     };
-    for (const c of doc.clips) checkClip(c, null);
-    for (const comp of doc.comps || []) for (const c of comp.clips) checkClip(c, comp.id);
-    for (const seq of SeqLib.others(doc)) for (const c of seq.clips || []) checkClip(c, null, seq.id);
+    const checkTimeline = (clips, comp, seq) => {
+      // Normalize containers first: parked defaults and the open sequence's
+      // stripped mirror are existing format rules, not extra timelines.
+      checkStructureItems(clips, PROJECT_SCHEMA.properties.clips.items,
+        comp ? `comp ${comp}.clips` : seq ? `sequence ${seq}.clips` : "clips");
+      for (const c of clips) checkClip(c, comp, seq);
+    };
+    checkTimeline(doc.clips, null);
+    for (const comp of doc.comps || []) checkTimeline(comp.clips, comp.id);
+    for (const seq of SeqLib.others(doc)) checkTimeline(seq.clips || [], null, seq.id);
   }
 
   const TEXT_ONLY_NOTE = [

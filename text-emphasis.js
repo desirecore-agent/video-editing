@@ -39,5 +39,34 @@
     }
     return out;
   }
-  return { schema, DEFAULT_COLOR, validate, ranges };
+  /** Keep matches anchored in the full source while wrapping/justification
+   * changes only whitespace. Layout and animation must not rematch substrings:
+   * a phrase may span lines or several independently painted glyphs/words. */
+  function forLines(source, rules, lines, uppercase = false) {
+    const matches = ranges(source, rules, uppercase);
+    if (!matches.length) return lines.map(() => []);
+    let offset = 0, match = 0;
+    return lines.map(line => {
+      const out = [];
+      for (let i = 0; i < line.length; i++) {
+        const whitespace = /\s/.test(line[i]);
+        if (!whitespace) while (offset < source.length && /\s/.test(source[offset])) offset++;
+        // Justification may insert spaces; wrapping may omit them. Neither
+        // operation changes the source identity of the next visible character.
+        const at = source[offset] === line[i] || (whitespace && /\s/.test(source[offset] || "")) ? offset++ : -1;
+        while (match < matches.length && matches[match].end <= at) match++;
+        const r = matches[match];
+        if (!r || at < r.start || at >= r.end) continue;
+        const previous = out[out.length - 1];
+        if (previous && previous.end === i && previous.color === r.color) previous.end++;
+        else out.push({ start: i, end: i + 1, color: r.color });
+      }
+      return out;
+    });
+  }
+  function slice(ranges, start, end) {
+    return ranges.filter(r => r.end > start && r.start < end)
+      .map(r => ({ start: Math.max(r.start, start) - start, end: Math.min(r.end, end) - start, color: r.color }));
+  }
+  return { schema, DEFAULT_COLOR, validate, ranges, forLines, slice };
 });
