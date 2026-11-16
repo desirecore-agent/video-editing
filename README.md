@@ -8,6 +8,8 @@ DesireCore owns installation, permissions, the process lifecycle, runtime genera
 
 ## Use and delivery
 
+The editor follows the interface language selected in DesireCore Settings. Simplified Chinese and English can switch while the editor is open, preserving the current page and draft. If the host supplies no language, the editor defaults to Simplified Chinese. Open it with `?lang=en-US` to select English without a host language.
+
 Exports become attachments only after normal authorized delivery. Check the completed job and the current managed instance, download its returned export URL to the Agent's already authorized workspace, verify the file, and attach that workspace path. Installing/binding the app or connecting MCP does not grant attachment access to the application data root. A failed approval/download remains a failure; never retry delivery with the unauthorized source path or an older movie.
 
 The export button refreshes the saved document and revision before snapshot admission. It accepts that exact server document, while a human edit or project switch during refresh stops admission and preserves the draft. Reference analysis reports no tempo for steady tones; disabling music extraction does not mean the reference lacks audio.

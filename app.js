@@ -11,6 +11,16 @@ function uiColor(key, fallback) {
   return globalThis.DesireCoreTheme?.snapshot?.()?.palette?.[key] || fallback;
 }
 
+const editorCopy = globalThis.VideoEditorLocale;
+const editorText = editorCopy.text;
+function editorLabel(source) {
+  return `<span data-editor-label="${escapeHtml(source)}">${escapeHtml(editorText(source))}</span>`;
+}
+function updateProjectTitle() {
+  const message = state.connected ? "{name}  ·  🟢 connected" : "{name}  ·  ⚪ local session";
+  editorCopy.bind(els.projectName, message, { name: project.name });
+}
+
 /* ── Constants ─────────────────────────────────────────────────────────── */
 const VIDEO_TRACK_COLORS = ["#4f8cff", "#7b6cff", "#ffd166", "#ff6b9d", "#45d9c2", "#f4a261", "#e76f51", "#a8dadc"];
 const AUDIO_TRACK_COLORS = ["#7ec249", "#5a9e3a", "#4a8a2f", "#3a7226", "#2d5a1e", "#8fbc5a", "#6b9e3a", "#4d7a28"];
@@ -1217,7 +1227,7 @@ async function connectServer() {
     const data = await res.json();
     applyProject(data);
     state.connected = true;
-    els.projectName.textContent = project.name + "  ·  🟢 connected";
+    updateProjectTitle();
     runtime.projectId = res.headers.get("X-FableCut-Project");
     if (res.headers.get("X-FableCut-Projects")) initProjectsUi();
     listenSSE();
@@ -1227,7 +1237,7 @@ async function connectServer() {
     detectWebCodecs();
   } catch {
     state.connected = false;
-    els.projectName.textContent = project.name + "  ·  ⚪ local session";
+    updateProjectTitle();
   }
   initSequencesUi();
   await probeMissingMeta();
@@ -2019,9 +2029,9 @@ async function importFiles(fileList) {
   renderBin(); scheduleSave();
   refreshMediaInfo(addedMedia);
   if (!added && skipped)
-    toast("Couldn't import — unsupported or unreadable file type");
+    toast(editorText("Couldn't import — unsupported or unreadable file type"));
   else if (skipped)
-    toast(`Imported ${added}, skipped ${skipped}`);
+    toast(editorText("Imported {added}, skipped {skipped}", { added, skipped }));
   return addedMedia;
 }
 
@@ -2323,7 +2333,7 @@ function renderBin() {
     if (!hits.length) {
       const none = document.createElement("div");
       none.className = "bin-noresult";
-      none.textContent = "No media matches.";
+      none.innerHTML = editorLabel("No media matches.");
       els.binList.appendChild(none);
     }
   } else {
@@ -2333,7 +2343,7 @@ function renderBin() {
     // Root drop zone at the bottom so items can be moved out of folders
     const root = document.createElement("div");
     root.className = "bin-drop-root";
-    root.textContent = "Drop here to move to root";
+    root.innerHTML = editorLabel("Drop here to move to root");
     bindFolderDropTarget(root, null);
     els.binList.appendChild(root);
   }
@@ -2374,20 +2384,21 @@ function syncBinTools() {
   if ((f.startsWith("tag:") && !tags.some((t) => t.toLowerCase() === f.slice(4).toLowerCase())) ||
     (f.startsWith("col:") && !getCollection(f.slice(4)))) binView.filter = "";
   const opt = (v, label) => `<option value="${escapeHtml(v)}"${v === binView.filter ? " selected" : ""}>${escapeHtml(label)}</option>`;
-  const html = opt("", "All media") + opt("fav", "★ Favorites") + opt("used", "Used in the edit") + opt("unused", "Unused") +
-    (mediaOffline.size || binView.filter === "offline" ? opt("offline", `⚠ Offline (${mediaOffline.size})`) : "") +
-    (project.media.some((m) => m.kind === "video") ? opt("proxy", "Has a proxy") + opt("noproxy", "Video without a proxy") : "") +
-    `<optgroup label="Kind">${MediaLib.KINDS.map((k) => opt("kind:" + k, k[0].toUpperCase() + k.slice(1))).join("")}</optgroup>` +
-    (cols.length ? `<optgroup label="Collections">${cols.map((c) => opt("col:" + c.id, c.name + ` (${c.media.length})`)).join("")}</optgroup>` : "") +
-    (tags.length ? `<optgroup label="Tags">${tags.map((t) => opt("tag:" + t, "#" + t)).join("")}</optgroup>` : "");
+  const html = opt("", editorText("All media")) + opt("fav", editorText("★ Favorites")) +
+    opt("used", editorText("Used in the edit")) + opt("unused", editorText("Unused")) +
+    (mediaOffline.size || binView.filter === "offline" ? opt("offline", editorText("⚠ Offline ({count})", { count: mediaOffline.size })) : "") +
+    (project.media.some((m) => m.kind === "video") ? opt("proxy", editorText("Has a proxy")) + opt("noproxy", editorText("Video without a proxy")) : "") +
+    `<optgroup label="${editorText("Kind")}">${MediaLib.KINDS.map((k) => opt("kind:" + k, editorText(k[0].toUpperCase() + k.slice(1)))).join("")}</optgroup>` +
+    (cols.length ? `<optgroup label="${editorText("Collections")}">${cols.map((c) => opt("col:" + c.id, c.name + ` (${c.media.length})`)).join("")}</optgroup>` : "") +
+    (tags.length ? `<optgroup label="${editorText("Tags")}">${tags.map((t) => opt("tag:" + t, "#" + t)).join("")}</optgroup>` : "");
   if (els.binFilter.innerHTML !== html) els.binFilter.innerHTML = html;
   els.binFilter.value = binView.filter;
   els.binFilter.classList.toggle("on", !!binView.filter);
   els.binSort.value = binView.sort;
   els.binSortDir.textContent = binView.dir === "desc" ? "↓" : "↑";
-  els.binSortDir.title = binView.dir === "desc" ? "Descending — click for ascending" : "Ascending — click for descending";
+  els.binSortDir.title = editorText(binView.dir === "desc" ? "Descending — click for ascending" : "Ascending — click for descending");
   els.binViewBtn.classList.toggle("on", binView.list);
-  els.binViewBtn.title = binView.list ? "Thumbnail view" : "List view: metadata columns";
+  els.binViewBtn.title = editorText(binView.list ? "Thumbnail view" : "List view: metadata columns");
   if (els.binSearch.value !== binView.q && document.activeElement !== els.binSearch) els.binSearch.value = binView.q;
 }
 function setBinFilter(filter) {
@@ -6599,13 +6610,13 @@ function clipStatusBar(c) {
   const locked = isGroupLocked(c), disabled = c.disabled === true;
   const linked = !!(c.linkGroup || c.linkedId);
   const canLink = !linked && (c.kind === "video" || c.kind === "audio") && c.unlinked === true;
-  const b = (cmd, on, label, title, extra = "") =>
-    `<button type="button" class="clip-flag${on ? " on" : ""}" data-clip-cmd="${cmd}" aria-pressed="${on}" title="${title}"${extra}>${label}</button>`;
+  const b = (cmd, on, label, title, values) =>
+    `<button type="button" class="clip-flag${on ? " on" : ""}" data-clip-cmd="${cmd}" aria-pressed="${on}" title="${escapeHtml(editorText(title, values))}">${editorLabel(label)}</button>`;
   return `<div class="clip-flags">` +
     b("disable", disabled, disabled ? "Disabled" : "Enabled",
       disabled ? "Hidden from preview and export — click to enable (Shift+E)" : "Click to disable: hide from preview and export without deleting (Shift+E)") +
     b("lock", locked, locked ? "Locked" : "Unlocked",
-      locked ? (c.locked === true ? "Click to unlock" : `Locked by track ${c.track} or a linked clip`) : "Click to lock — nothing can move or change it") +
+      locked ? (c.locked === true ? "Click to unlock" : "Locked by track {track} or a linked clip") : "Click to lock — nothing can move or change it", { track: c.track }) +
     ((linked || canLink) ? b("link", linked, linked ? "Linked" : "Unlinked",
       linked ? "Video and audio move together — click to unlink (Ctrl/Cmd+L)" : "Click to relink with its audio (select both, Ctrl/Cmd+L)") : "") +
     `</div>`;
@@ -6614,7 +6625,7 @@ function renderInspector(lite) {
   if (colorState.open && !lite) renderColorPage();
   const c = getClip(state.selId);
   if (!c) {
-    els.inspector.innerHTML = `<div class="inspector-empty">Select a clip to edit its<br>transform, effects &amp; audio.</div>`;
+    els.inspector.innerHTML = `<div class="inspector-empty">${editorLabel("Select a clip to edit its")}<br>${editorLabel("transform, effects & audio.")}</div>`;
     renderKfGraphsPanel();
     return;
   }
@@ -6630,7 +6641,7 @@ function renderInspector(lite) {
   const kfCtl = (k) => {
     if (!ANIMATABLE.includes(k)) return "";
     const n = kfCount(k), on = !!kfAtPlayhead(c, k);
-    return `<span class="kf-ctl"><button class="kf-btn${n ? " has" : ""}${on ? " on" : ""}" data-kf="${k}" title="${on ? "Remove keyframe at playhead" : "Set keyframe at playhead"}">◆${n || ""}</button>${n ? `<button class="kf-btn" data-kfclear="${k}" title="Clear keyframes">✕</button>` : ""}</span>`;
+    return `<span class="kf-ctl"><button class="kf-btn${n ? " has" : ""}${on ? " on" : ""}" data-kf="${k}" title="${editorText(on ? "Remove keyframe at playhead" : "Set keyframe at playhead")}">◆${n || ""}</button>${n ? `<button class="kf-btn" data-kfclear="${k}" title="${editorText("Clear keyframes")}">✕</button>` : ""}</span>`;
   };
   /* Label carries two affordances that key off different click modifiers:
      plain click toggles the keyframe graph (animatable props), Ctrl/Cmd-click
@@ -6641,7 +6652,7 @@ function renderInspector(lite) {
     const list = (Array.isArray(keys) ? keys : String(keys || "").split(",")).map((s) => s.trim()).filter(Boolean);
     const canReset = list.some((rk) => Object.hasOwn(DEFAULT_PROPS, rk) || rk === "transIn" || rk === "transOut");
     const isGraph = !!k && ANIMATABLE.includes(k);
-    if (!isGraph && !canReset) return `<label>${label}</label>`;
+    if (!isGraph && !canReset) return `<label>${editorLabel(label)}</label>`;
     const cls = [
       isGraph ? "kf-graph-toggle" : "",
       isGraph && state.kfGraphs.has(k) ? "on" : "",
@@ -6653,7 +6664,7 @@ function renderInspector(lite) {
       ? "Click: keyframe graph · Ctrl-click: reset channel · Shift-click: reset at playhead / remove keyframe"
       : isGraph ? "Show / hide keyframe graph"
         : "Ctrl-click: reset channel · Shift-click: reset at playhead / remove keyframe";
-    return `<label class="${cls}"${attrs} title="${title}">${label}</label>`;
+    return `<label class="${cls}"${attrs} title="${escapeHtml(editorText(title))}">${editorLabel(label)}</label>`;
   };
   const row = (label, inner, k = "", reset) =>
     `<div class="insp-row">${propLabel(label, k, reset)}${inner}${k ? kfCtl(k) : ""}</div>`;
@@ -6664,15 +6675,15 @@ function renderInspector(lite) {
        <span class="val" data-val="${k}" data-unit="${unit}">${shown}${unit}</span>`, k);
   };
   let html = (state.selIds.size > 1
-    ? `<div class="insp-multi">${state.selIds.size} clips selected — drag moves them together, Del deletes all. Fields below edit the primary (white-outlined) clip.</div>`
-    : "") + clipStatusBar(c) + `<div class="insp-section"><h3>Clip — ${c.kind}</h3>
+    ? `<div class="insp-multi">${escapeHtml(editorText("{count} clips selected — drag moves them together, Del deletes all. Fields below edit the primary (white-outlined) clip.", { count: state.selIds.size }))}</div>`
+    : "") + clipStatusBar(c) + `<div class="insp-section"><h3>${editorLabel("Clip")} — ${editorLabel(c.kind[0].toUpperCase() + c.kind.slice(1))}</h3>
     ${row("Name", `<input type="text" data-k="name" value="${escapeHtml(c.name || "")}">`)}
-    ${c.mediaId ? row("Source", `<button type="button" class="btn tiny style-picker-btn" data-media-open title="Replace this clip's media — keeps position, trim, keyframes and effects">${escapeHtml((getMedia(c.mediaId) || {}).name || "Missing media")} ▾</button>`) : ""}
+    ${c.mediaId ? row("Source", `<button type="button" class="btn tiny style-picker-btn" data-media-open title="${editorText("Replace this clip's media — keeps position, trim, keyframes and effects")}">${escapeHtml((getMedia(c.mediaId) || {}).name || editorText("Missing media"))} ▾</button>`) : ""}
     ${row("Start (s)", `<input type="number" data-k="start" step="0.01" value="${c.start.toFixed(2)}">`)}
     ${row("Length (s)", `<input type="number" data-k="duration" step="0.01" value="${c.duration.toFixed(2)}">`)}
   </div>`;
   const sel = (label, k, opts, cur) => row(label,
-    `<select data-k="${k}">${opts.map((o) => `<option value="${o}" ${String(o) === String(cur) ? "selected" : ""}>${o}</option>`).join("")}</select>`, k);
+    `<select data-k="${k}">${opts.map((o) => `<option value="${o}" data-editor-label="${escapeHtml(String(o))}" ${String(o) === String(cur) ? "selected" : ""}>${escapeHtml(editorText(String(o)))}</option>`).join("")}</select>`, k);
   const check = (label, k, on) => row(label, `<input type="checkbox" data-k="${k}" ${on ? "checked" : ""}>`, k);
   // track matte: the mode, and the track it comes from (auto = the video track above)
   const matteRows = () => {
@@ -6683,12 +6694,12 @@ function renderInspector(lite) {
         + (clipMatte(c) ? "" : `<div class="insp-note">No video track above to take the matte from — pick one.</div>`) : "");
   };
   if (c.kind === "adjust") {
-    html += `<div class="insp-section"><h3>Adjustment layer</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Adjustment layer")}</h3>
       ${slider("opacity", 0, 1, 0.01, p.opacity)}
       ${matteRows()}
     </div>`;
   } else if (c.kind === "null") {
-    html += `<div class="insp-section"><h3>Null object</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Null object")}</h3>
       <p class="cl-note">A null never shows in the picture. Parent clips to it (their Parent field), then move, turn or scale the null to move them together.</p>
       ${row("Position X", `<input type="number" data-k="x" value="${fmtInspNum(p.x)}">`, "x")}
       ${row("Position Y", `<input type="number" data-k="y" value="${fmtInspNum(p.y)}">`, "y")}
@@ -6698,7 +6709,7 @@ function renderInspector(lite) {
       ${parentRowHtml(c)}
     </div>`;
   } else if (c.kind !== "audio") {
-    html += `<div class="insp-section"><h3>Transform</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Transform")}</h3>
       ${row("Position X", `<input type="number" data-k="x" value="${fmtInspNum(p.x)}">`, "x")}
       ${row("Position Y", `<input type="number" data-k="y" value="${fmtInspNum(p.y)}">`, "y")}
       ${slider("scale", 0.1, 4, 0.01, p.scale)}
@@ -6710,10 +6721,10 @@ function renderInspector(lite) {
       ${matteRows()}
     </div>`;
   }
-  if (c.kind === "shape") html += shapeSectionHtml(c, p, row) + `<div class="insp-section"><h3>Look</h3>${slider("blur", 0, 40, 0.5, p.blur, "px")}${slider("shake", 0, 40, 0.5, p.shake, "px")}${slider("shakeSpeed", 1, 30, 0.5, p.shakeSpeed)}</div>`;
+  if (c.kind === "shape") html += shapeSectionHtml(c, p, row) + `<div class="insp-section"><h3>${editorLabel("Look")}</h3>${slider("blur", 0, 40, 0.5, p.blur, "px")}${slider("shake", 0, 40, 0.5, p.shake, "px")}${slider("shakeSpeed", 1, 30, 0.5, p.shakeSpeed)}</div>`;
   if (c.kind === "comp") html += templateSectionHtml(c, row) + compSectionHtml(c, row);
   if (c.kind === "video" || c.kind === "image" || c.kind === "svg" || c.kind === "comp") {
-    html += `<div class="insp-section"><h3>Layout</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Layout")}</h3>
       ${sel("Fit", "fit", ["contain", "cover", "stretch", "none"], p.fit)}
       ${row("Crop L/R %", `<input type="number" data-k="cropL" min="0" max="95" value="${p.cropL}" style="max-width:58px">
                            <input type="number" data-k="cropR" min="0" max="95" value="${p.cropR}" style="max-width:58px">`, "", "cropL,cropR")}
@@ -6730,7 +6741,7 @@ function renderInspector(lite) {
     if (shape || p.reframe) {
       const note = p.reframe === "follow" ? `Follows the subject${c.keyframes?.x?.length || c.keyframes?.y?.length ? ` (${(c.keyframes.x || c.keyframes.y).length} keys)` : " (one steady position)"}`
         : p.reframe === "centre" ? "Fitted and centred" : "This picture is another shape than the canvas.";
-      html += `<div class="insp-section"><h3>Reframe</h3>
+      html += `<div class="insp-section"><h3>${editorLabel("Reframe")}</h3>
         <div class="insp-note">${note}</div>
         ${reframeRun.busy
           ? row("", `<span class="insp-ctrls"><span style="opacity:.75">Looking at the footage… ${reframeRun.done + 1}/${reframeRun.of}${reframeRun.frac ? ` · ${Math.round(reframeRun.frac * 100)}%` : ""}</span>
@@ -6742,7 +6753,7 @@ function renderInspector(lite) {
     }
   }
   if (c.kind === "video" || c.kind === "image" || c.kind === "svg" || c.kind === "adjust" || c.kind === "comp") {
-    html += `<div class="insp-section"><h3>Filter / Color</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Filter / Color")}</h3>
       ${sel("Preset", "filterPreset", Object.keys(FILTER_PRESETS), p.filterPreset)}
       ${slider("brightness", 0, 200, 1, p.brightness, "%")}
       ${slider("contrast", 0, 200, 1, p.contrast, "%")}
@@ -6756,7 +6767,7 @@ function renderInspector(lite) {
       ${slider("invert", 0, 100, 1, p.invert, "%")}
       ${slider("vignette", 0, 100, 1, p.vignette, "%")}
     </div>
-    <div class="insp-section"><h3>Motion FX</h3>
+    <div class="insp-section"><h3>${editorLabel("Motion FX")}</h3>
       ${slider("shake", 0, 40, 0.5, p.shake, "px")}
       ${slider("shakeSpeed", 1, 30, 0.5, p.shakeSpeed)}
       ${slider("rgbSplit", 0, 30, 0.5, p.rgbSplit, "px")}
@@ -6764,7 +6775,7 @@ function renderInspector(lite) {
     </div>`;
   }
   if (c.kind === "video" || c.kind === "image") {
-    html += `<div class="insp-section"><h3>Keying / Cut-out</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Keying / Cut-out")}</h3>
       ${row("Key color", `<input type="color" data-k="chromaKey" value="${p.chromaKey || "#00ff00"}">
         <button class="btn tiny${p.chromaKey ? "" : " toggle on"}" data-action="keyoff" title="Disable chroma key">off</button>`, "", "chromaKey")}
       ${slider("chromaTolerance", 0, 100, 1, p.chromaTolerance)}
@@ -6775,7 +6786,7 @@ function renderInspector(lite) {
   if (c.kind === "video" || c.kind === "audio") {
     const chLabel = audioChannelLong(c.props?.audioChannel);
     const nt = normalizeTarget();
-    html += `<div class="insp-section"><h3>Audio / Time</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Audio / Time")}</h3>
       ${chLabel ? row("Channel", `<span style="opacity:.75">${chLabel}</span>`)
         : row("Channels", `<select data-k="channelMode" title="Stereo: as recorded · Mono: fold L+R to one channel · Left / Right: use one side only · Swap: exchange L and R">${CHANNEL_MODES.map((o) =>
           `<option value="${o}" ${o === clipChannelMode(c) ? "selected" : ""}>${o[0].toUpperCase() + o.slice(1)}</option>`).join("")}</select>`, "", "channelMode")}
@@ -6796,7 +6807,7 @@ function renderInspector(lite) {
   if ((c.kind === "video" || c.kind === "audio") && typeof FableCutSilence !== "undefined") {
     const so = silenceOptions(), found = state.silence;
     const num = (k, lo, hi, step, unit, title) => `<span class="insp-ctrls"><input type="number" data-sil="${k}" min="${lo}" max="${hi}" step="${step}" value="${so[k]}" title="${title}" style="max-width:64px"> ${unit}</span>`;
-    html += `<div class="insp-section"><h3>Silence</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Silence")}</h3>
       ${row("Below", num("threshold", -80, -10, 1, "dB", "Quieter than this counts as silence (dBFS). Raise it toward −30 in a noisy room"))}
       ${row("At least", num("minSilence", 0.1, 10, 0.1, "s", "Shorter pauses are left alone"))}
       ${row("Keep", num("padding", 0, 2, 0.05, "s beside speech", "Quiet kept before and after each phrase, so words aren't clipped"))}
@@ -6813,7 +6824,7 @@ function renderInspector(lite) {
     const bt = state.beats && state.beats.clipId === c.id ? state.beats : null, bs = beatsSettings();
     const lanes = TRACKS.filter((t) => t.kind === "video" && project.clips.some((x) => x.track === t.id)).map((t) => t.id)
       .sort((x, y) => (+x.slice(1) || 0) - (+y.slice(1) || 0));
-    html += `<div class="insp-section"><h3>Beats</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Beats")}</h3>
       ${row("", state.beatsBusy
         ? `<span class="insp-ctrls"><span style="opacity:.75">Listening…</span>
         <button type="button" class="btn tiny" data-beat-clear title="Stop listening">Cancel</button></span>`
@@ -6828,12 +6839,12 @@ function renderInspector(lite) {
     </div>`;
   }
   if (c.kind === "audio" && typeof FableCutFx !== "undefined") {
-    html += `<div class="insp-section" data-fx-section><h3>Audio effects</h3>${fxEditorHtml(c.fx, playheadOverClip(c) ? state.time - c.start : null)}</div>`;
+    html += `<div class="insp-section" data-fx-section><h3>${editorLabel("Audio effects")}</h3>${fxEditorHtml(c.fx, playheadOverClip(c) ? state.time - c.start : null)}</div>`;
   }
   if (c.kind === "audio") {
     const duckN = c.keyframes?.duck?.length || 0;
     const lanes = audioTrackIds().filter((id) => id !== c.track);
-    html += `<div class="insp-section"><h3>Auto-duck</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Auto-duck")}</h3>
       ${row("Under", `<select data-duck-under title="Lower this clip wherever there is sound on these tracks (dialogue / VO)">
         <option value="">All other audio tracks</option>${lanes.map((id) => `<option value="${id}">${id}</option>`).join("")}</select>`)}
       ${row("Amount", `<span class="insp-ctrls"><input type="number" data-duck-amount min="-40" max="-1" step="1" value="${duckAmount()}" title="How far to dip, dB" style="max-width:64px"> dB
@@ -6855,7 +6866,7 @@ function renderInspector(lite) {
   if (isVisualClip(c)) html += motionSectionHtml(c, p, row);
   if (c.kind !== "audio" && c.kind !== "null") html += maskSectionHtml(c);
   if (c.kind === "video") html += trackSectionHtml(c);
-  html += `<div class="insp-section"><h3>Transition</h3>
+  html += `<div class="insp-section"><h3>${editorLabel("Transition")}</h3>
     ${tsel("In", "transIn", c.transitionIn)}
     ${curveSel("In curve", "curveIn", c.transitionIn)}
     ${tsel("Out", "transOut", c.transitionOut)}
@@ -6865,7 +6876,7 @@ function renderInspector(lite) {
     const fontGroup = (label, fonts) => fonts.length
       ? `<optgroup label="${label}">${fonts.map((f) => `<option ${f === p.font ? "selected" : ""}>${f}</option>`).join("")}</optgroup>` : "";
     const known = [...SYSTEM_FONTS, ...runtime.customFonts, ...GOOGLE_FONTS, ...runtime.googleLoaded];
-    html += `<div class="insp-section"><h3>Text</h3>
+    html += `<div class="insp-section"><h3>${editorLabel("Text")}</h3>
       ${row("Content", `<textarea data-k="text">${p.text}</textarea>`, "", "text")}
       ${row(hasTextBox(p) && p.boxFit ? "Max size" : "Font size",
         `<input type="range" data-k="fontSize" min="12" max="300" step="1" value="${fmtInspNum(p.fontSize, 1)}" title="Ctrl/Cmd-click: reset to default">
@@ -6882,7 +6893,7 @@ function renderInspector(lite) {
       ${hasTextBox(p) ? sel("V-align", "vAlign", ["top", "middle", "bottom"], p.vAlign || "middle") : ""}
       ${sel("Direction", "direction", ["auto", "ltr", "rtl"], p.direction || "auto")}
     </div>
-    <div class="insp-section"><h3>Font</h3>
+    <div class="insp-section"><h3>${editorLabel("Font")}</h3>
       ${row("Family", `<select data-k="font">
         ${fontGroup("System", SYSTEM_FONTS)}
         ${fontGroup("Library fonts", runtime.customFonts)}
@@ -6898,7 +6909,7 @@ function renderInspector(lite) {
       ${slider("letterSpacing", -10, 60, 0.5, p.letterSpacing, "px")}
       ${slider("lineHeight", 0.7, 2.5, 0.05, p.lineHeight)}
     </div>
-    <div class="insp-section"><h3>Text style</h3>
+    <div class="insp-section"><h3>${editorLabel("Text style")}</h3>
       ${slider("strokeWidth", 0, 20, 0.5, p.strokeWidth, "px")}
       ${row("Stroke col.", `<input type="color" data-k="strokeColor" value="${p.strokeColor}">`, "", "strokeColor")}
       ${row("Bg color", `<input type="color" data-k="bgColor" value="${p.bgColor}">`, "", "bgColor")}
@@ -6908,7 +6919,7 @@ function renderInspector(lite) {
       ${row("Glow color", `<input type="color" data-k="glowColor" value="${p.glowColor || p.color}">
         <button class="btn tiny${p.glowColor ? "" : " toggle on"}" data-action="glow-auto" title="Glow uses the text color">auto</button>`, "", "glowColor")}
     </div>
-    <div class="insp-section"><h3>Title &amp; caption</h3>
+    <div class="insp-section"><h3>${editorLabel("Title & caption")}</h3>
       ${row("Title style", `<button type="button" class="btn tiny style-picker-btn" data-style-open title="Pick a style — hover to preview it live">${(TITLE_STYLES[c.styleName] || {}).label || "Choose…"} ▾</button>
         <button class="btn tiny" data-action="title-shuffle" title="Random style">Shuffle</button>`)}
       ${row("Animation", `<select data-k="textAnim">${TEXT_ANIMS.map((a) => `<option ${a === p.textAnim ? "selected" : ""}>${a}</option>`).join("")}</select>`, "", "textAnim")}
@@ -11894,7 +11905,7 @@ function exitComp(levels = 1) {
 }
 function syncCompCrumb() {
   syncSequenceButton();
-  if (els.projectName) els.projectName.textContent = project.name + (state.connected ? "  ·  🟢 connected" : "  ·  ⚪ local session");
+  updateProjectTitle();
   const el = document.getElementById("compCrumb");
   if (!el) return;
   const x = state.compCtx;
@@ -12024,7 +12035,10 @@ function syncSequenceButton() {
   const n = SeqLib.entries(seqRoot()).length;
   b.querySelector(".seq-name").textContent = openSequenceName();
   b.querySelector(".seq-count").textContent = n > 1 ? String(n) : "";
-  b.title = `Sequence: ${openSequenceName()}${n > 1 ? ` (one of ${n})` : ""} — open another one, or add, duplicate, rename`;
+  const source = n > 1
+    ? "Sequence: {name} (one of {count}) — open another one, or add, duplicate, rename"
+    : "Sequence: {name} — open another one, or add, duplicate, rename";
+  editorCopy.bind(b, source, { name: openSequenceName(), count: n }, "title");
 }
 /** The sequence menu: the project's sequences (click one to open it), then what to do with them. */
 function showSequenceMenu(x, y) {
@@ -16081,7 +16095,7 @@ function loop(ts) {
     const t0 = w ? w.start : 0;
     const pct = span ? ((state.time - t0) / span) * 100 : 0;
     els.exportProgress.style.width = pct.toFixed(1) + "%";
-    els.exportTitle.textContent = `Exporting… ${pct.toFixed(0)}%`;
+    editorCopy.bind(els.exportTitle, "Exporting… {percent}%", { percent: pct.toFixed(0) });
   }
   idleAudio(ts);
   if (loopBusy(ts)) requestAnimationFrame(loop);
@@ -16210,7 +16224,7 @@ function populateExportProfileSelect() {
   // a project/browser default naming a deleted profile must stay visible rather
   // than silently falling through to whichever option happens to be first
   if (choice.kind === "profile" && !ids.includes(choice.id)) ids.unshift(choice.id);
-  html += `<optgroup label="Encoding profiles (encoding-profiles.json)">${ids.map((id) => {
+  html += `<optgroup label="${editorText("Encoding profiles (encoding-profiles.json)")}">${ids.map((id) => {
     const p = encodeProfiles.profiles[id];
     return opt("p:" + id, p ? (p.label || id) : `${id} (not defined on the server)`);
   }).join("")}</optgroup>`;
@@ -16409,9 +16423,9 @@ function refreshDeliveryNotes() {
   if (els.exportProfileNote) els.exportProfileNote.textContent = preset?.note || "";
   if (els.exportProfileHint) {
     els.exportProfileHint.textContent = dlvSource === "project"
-      ? "Project default (delivery in project.json) — agents export with it too."
-      : modified ? `${preset?.label || "Preset"} · modified — Save preset… keeps these settings for every project.`
-        : dlvSource === "browser" ? "Your last settings in this browser." : "";
+      ? editorText("Project default (delivery in project.json) — agents export with it too.")
+      : modified ? editorText("{preset} · modified — Save preset… keeps these settings for every project.", { preset: preset?.label || editorText("Preset") })
+        : dlvSource === "browser" ? editorText("Your last settings in this browser.") : "";
   }
   const range = exportRange(fps);
   const size = Delivery.estimateSize(sp, { duration: range.dur, width: fr.outW, height: fr.outH, fps });
@@ -16498,7 +16512,7 @@ function webCodecsBitrate(w, h, fps) {
 }
 async function openExportSetup() {
   if (state.exporting) return;
-  if (!project.clips.length) { alert("Timeline is empty — add some clips first."); return; }
+  if (!project.clips.length) { alert(editorText("Timeline is empty — add some clips first.")); return; }
   await detectWebCodecs();
   const ef = getExportFrame();
   const fastOk = state.connected && state.ffmpeg;
@@ -16519,19 +16533,17 @@ async function openExportSetup() {
     els.engineFast.checked = true;
     els.engineRealtime.checked = false;
   }
-  $("engineFastNote").textContent = fastOk
-    ? (ef ? "Exports the " + ef.w + "×" + ef.h + " delivery frame (cropped). Keeps rendering if you switch tabs."
+  const fastNote = fastOk
+    ? (ef ? "Exports the {width}×{height} delivery frame (cropped). Keeps rendering if you switch tabs."
       : "Frame-accurate. Server encodes from JPEG frames. Keeps going if you switch tabs.")
     : (ef
       ? "Needs the server + ffmpeg on PATH to export a cropped delivery frame."
       : "Needs the server + ffmpeg on PATH.");
-  const wcNote = $("engineWebCodecsNote");
-  if (wcNote) {
-    wcNote.textContent = "Unavailable: this live encoder cannot freeze export inputs. Choose Fast (ffmpeg).";
-  }
+  editorCopy.bind($("engineFastNote"), fastNote, { width: ef?.w, height: ef?.h });
+  editorCopy.bind($("engineWebCodecsNote"), "Unavailable: this live encoder cannot freeze export inputs. Choose Fast (ffmpeg).");
   // Relabel the radio when WebCodecs is unavailable but MediaRecorder still works
   const label = els.engineRealtime?.closest("label")?.querySelector("b");
-  if (label) label.textContent = wcOk ? "WebCodecs (HW encode)" : "Realtime (in-browser)";
+  editorCopy.bind(label, wcOk ? "WebCodecs (HW encode)" : "Realtime (in-browser)");
   fillExportWcOpts();
   syncExportWcOpts();
   const warn = $("exportTrackWarn");
@@ -17543,14 +17555,19 @@ async function requestSnapshotExport(opts = {}, range = exportRangeMode()) {
     if (!submitted.id || !submitted.snapshot) throw new Error("export owner did not return a frozen-input job");
     current.id = submitted.id;
     els.exportOverlay.dataset.jobId = submitted.id;
-    els.exportNote.textContent = "Exporting the saved snapshot. Later edits do not change this output.";
+    const copy = globalThis.VideoEditorLocale;
+    const exportNote = "Exporting the saved snapshot. Later edits do not change this output.";
+    if (copy) copy.bind(els.exportNote, exportNote);
+    else els.exportNote.textContent = exportNote;
     let job = submitted;
     for (;;) {
       if (current.cancelRequested) await cancelSnapshotExport();
       if (current.cancelError) throw new Error("Stop not confirmed: " + current.cancelError);
       const pct = Math.max(0, Math.min(1, job.progress || 0));
       els.exportProgress.style.width = (pct * 100).toFixed(1) + "%";
-      els.exportTitle.textContent = current.cancelRequested ? "Stopping export…" : `Exporting… ${Math.round(pct * 100)}%`;
+      const percent = Math.round(pct * 100);
+      if (copy) copy.bind(els.exportTitle, current.cancelRequested ? "Stopping export…" : "Exporting… {percent}%", { percent });
+      else els.exportTitle.textContent = current.cancelRequested ? "Stopping export…" : `Exporting… ${percent}%`;
       if (opts.onProgress) opts.onProgress(pct);
       if (["done", "failed", "cancelled", "interrupted"].includes(job.status)) break;
       await new Promise((resolve) => setTimeout(resolve, 400));
@@ -17562,13 +17579,14 @@ async function requestSnapshotExport(opts = {}, range = exportRangeMode()) {
     if (job.status !== "done" || !job.src) throw new Error(job.error || "export " + job.status);
     const result = { outputs: job.result?.outputs || [{ file: decodeURIComponent(job.src.split("/").pop()), ok: true, src: job.src }], jobId: job.id, snapshot: job.snapshot };
     if (!opts.silent) {
-      toast("Exported " + result.outputs.map((o) => o.file).join(", "));
+      const files = result.outputs.map((o) => o.file).join(", ");
+      toast(copy?.text("Exported {files}", { files }) ?? "Exported " + files);
       const link = document.createElement("a");link.href = job.src;link.download = decodeURIComponent(job.src.split("/").pop());link.click();
     }
     return result;
   } catch (e) {
     const error = String(e.message || e);
-    if (!opts.silent) toast("Export not completed: " + error);
+    if (!opts.silent) toast(globalThis.VideoEditorLocale?.text("Export not completed: {error}", { error }) ?? "Export not completed: " + error);
     return { error, jobId: current.id };
   } finally {
     if (current.cancelPromise) await current.cancelPromise;
@@ -17790,27 +17808,28 @@ function renderQueue() {
   const pending = exportQueue.filter((q) => q.status === "pending").length;
   const done = exportQueue.filter((q) => q.status === "done").length;
   $("exportQueueNote").textContent = queueRunning
-    ? "Exporting — outputs with the same frame rate and range share one render."
-    : exportQueue.length ? `${pending} waiting · ${done} done` : "Nothing queued — pick settings in Export and press Add to queue.";
+    ? editorText("Exporting — outputs with the same frame rate and range share one render.")
+    : exportQueue.length ? editorText("{pending} waiting · {done} done", { pending, done })
+      : editorText("Nothing queued — pick settings in Export and press Add to queue.");
   const btnOpen = $("btnOpenQueue");
-  if (btnOpen) btnOpen.textContent = exportQueue.length ? `Queue · ${pending || exportQueue.length}` : "Queue";
+  if (btnOpen) btnOpen.textContent = exportQueue.length ? editorText("Queue · {count}", { count: pending || exportQueue.length }) : editorText("Queue");
   const start = $("btnQueueStart");
-  start.textContent = queueRunning ? "Stop" : "Start";
+  start.textContent = editorText(queueRunning ? "Stop" : "Start");
   start.disabled = !queueRunning && !pending;
   $("btnQueueClose").disabled = queueRunning;
   $("btnQueueClear").disabled = queueRunning || !exportQueue.some((q) => q.status !== "pending" && q.status !== "running");
-  if (!exportQueue.length) { list.innerHTML = `<li class="xq-empty">The queue is empty</li>`; return; }
+  if (!exportQueue.length) { list.innerHTML = `<li class="xq-empty">${editorLabel("The queue is empty")}</li>`; return; }
   list.innerHTML = exportQueue.map((q) => {
     const ext = Delivery.CONTAINERS[q.spec.container].ext;
     const fr = deliveryFrame(q.spec), fps = q.spec.fps || projectFps();
-    const status = q.status === "running" ? `Rendering… ${Math.round(q.progress * 100)}%`
-      : q.status === "done" ? `Done → exports/${q.file || q.name + ext}`
-        : q.status === "failed" ? `Failed: ${q.error || "unknown error"}`
-          : q.status === "cancelled" ? "Stopped" : "Waiting";
+    const status = q.status === "running" ? editorText("Rendering… {percent}%", { percent: Math.round(q.progress * 100) })
+      : q.status === "done" ? editorText("Done → exports/{file}", { file: q.file || q.name + ext })
+        : q.status === "failed" ? editorText("Failed: {error}", { error: q.error || editorText("unknown error") })
+          : editorText(q.status === "cancelled" ? "Stopped" : "Waiting");
     const actions = [
-      q.status === "done" && q.src ? `<a class="btn tiny" href="${escapeHtml(q.src)}" target="_blank" rel="noopener" download>Open</a>` : "",
-      q.status === "failed" || q.status === "cancelled" ? `<button type="button" class="btn tiny" data-q-retry="${q.id}">Retry</button>` : "",
-      q.status !== "running" ? `<button type="button" class="btn tiny" data-q-remove="${q.id}" title="Remove from the queue">✕</button>` : "",
+      q.status === "done" && q.src ? `<a class="btn tiny" href="${escapeHtml(q.src)}" target="_blank" rel="noopener" download>${editorLabel("Open")}</a>` : "",
+      q.status === "failed" || q.status === "cancelled" ? `<button type="button" class="btn tiny" data-q-retry="${q.id}">${editorLabel("Retry")}</button>` : "",
+      q.status !== "running" ? `<button type="button" class="btn tiny" data-q-remove="${q.id}" title="${editorText("Remove from the queue")}">✕</button>` : "",
     ].join("");
     return `<li class="${q.status}" data-q="${q.id}"><div class="xq-main"><b>${escapeHtml(q.label)} — ${escapeHtml(q.name + ext)}</b>` +
       `<span class="xq-sub">${escapeHtml(Delivery.describe(q.spec, { width: fr.outW, height: fr.outH, fps }))} · ${q.range === "in-out" ? "IN–OUT" : "entire timeline"}</span>` +
@@ -17903,7 +17922,7 @@ function renderBatchList() {
   $("dlvBatchCount").textContent = list.length ? `· ${on} of ${list.length} checked` : "";
   const be = $("btnBatchExport");
   if (be) { be.disabled = !on; be.textContent = on ? `Export checked (${on})` : "Export checked"; }
-  if (!list.length) { ul.innerHTML = `<li class="bo-empty">No batch outputs yet — add the settings above, or a typical set</li>`; return; }
+  if (!list.length) { ul.innerHTML = `<li class="bo-empty">${editorLabel("No batch outputs yet — add the settings above, or a typical set")}</li>`; return; }
   ul.innerHTML = list.map((o) => {
     const sp = normalizeDelivery(o).spec, fr = deliveryFrame(sp), fps = sp.fps || projectFps();
     return `<li class="${o.on === false ? "off" : ""}" data-o="${escapeHtml(o.id)}">` +
@@ -20678,6 +20697,11 @@ function repaintEditorTheme() {
   }
 }
 window.addEventListener("desirecore:themechange", repaintEditorTheme);
+window.addEventListener("video-editor:localechange", () => {
+  syncBinTools();
+  if (!$("#exportQueue")?.classList.contains("hidden")) renderQueue();
+  if (!$("#exportSetup")?.classList.contains("hidden")) refreshDeliveryNotes();
+});
 
 initPanelSplit();
 buildTrackDOM();
