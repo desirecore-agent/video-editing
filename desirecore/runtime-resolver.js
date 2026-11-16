@@ -41,10 +41,15 @@ function fileRecord(root,relative) {
  if(!stat.isFile())throw Error("Expected runtime file: "+relative);
  return{path:relative,size:stat.size,sha256:digest(fs.readFileSync(file))};
 }
-function collectFiles(root,relative="",out=[]) {
+function collectFiles(root,relative="",out=[],browserLog) {
  for(const name of fs.readdirSync(path.join(root,relative)).sort()){
  const p=relative?relative+"/"+name:name;if(p==="receipt.json")continue;
- const stat=fs.lstatSync(path.join(root,p));if(stat.isDirectory()&&!stat.isSymbolicLink())collectFiles(root,p,out);else out.push(fileRecord(root,p));
+ const stat=fs.lstatSync(path.join(root,p));
+ if(p===browserLog){
+  if(!stat.isFile()||stat.nlink!==1)throw Error("Runtime cache content changed: Chromium diagnostic is not a regular standalone file");
+  continue;
+ }
+ if(stat.isDirectory()&&!stat.isSymbolicLink())collectFiles(root,p,out,browserLog);else out.push(fileRecord(root,p));
  }return out;
 }
 function checkedRuntime(home,options={}) {
@@ -52,7 +57,13 @@ function checkedRuntime(home,options={}) {
  assertRuntimePaths(root,target,key);
  const receipt=JSON.parse(fs.readFileSync(path.join(root,"receipt.json"),"utf8"));
  if(receipt.manifestDigest!==digest(JSON.stringify(manifest))||receipt.target!==key)throw Error("Runtime receipt does not match the pinned manifest and target");
- const actual=collectFiles(root);if(JSON.stringify(actual)!==JSON.stringify(receipt.files))throw Error("Runtime cache content changed; prepare a fresh verified runtime");
+ // Windows Chromium children can append debug.log next to the executable after prepare.
+ // A file listed in the original receipt is always hashed, including at this path.
+ const logPath=key.startsWith("win32-")
+  ? path.posix.join(path.posix.dirname(target.assets.find(a=>a.id==="chromium").executable),"debug.log")
+  : undefined;
+ const browserLog=logPath&&Array.isArray(receipt.files)&&!receipt.files.some(file=>file.path===logPath)?logPath:undefined;
+ const actual=collectFiles(root,"",[],browserLog);if(JSON.stringify(actual)!==JSON.stringify(receipt.files))throw Error("Runtime cache content changed; prepare a fresh verified runtime");
  const executable=name=>{const asset=target.assets.find(a=>a.id===name);const file=path.join(root,asset.executable);if(!fs.statSync(file).isFile())throw Error("Missing runtime executable: "+name);return file;};
  return{root,node:process.execPath,ffmpeg:executable("ffmpeg"),ffprobe:executable("ffprobe"),chrome:executable("chromium"),receipt};
 }
