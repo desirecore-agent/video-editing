@@ -5,7 +5,7 @@
     "id": "0171a763-ad35-4b94-98b9-204782817b44",
     "name": "视频剪辑",
     "iconLetter": "剪",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "entrypoints": [
       {
         "id": "editor",
@@ -45,14 +45,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "50f41bc42294abc3469a5c74e8fc3152fb6bf17678dd56ebb1cc8e8b3554fcb3",
-      "size": 5531,
+      "sha256": "c7ffadbf69f543503560155cc5bd6705d6fb15169bf65a4ffcdf4115bf4b0ad5",
+      "size": 5861,
       "role": "documentation"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "897aeaf5c51a82002c7c35bc6dd5c08c1ef71349aaea987e09ddd3d781d20c50",
-      "size": 4675,
+      "sha256": "6b4a79f19098104ffba26b63b91176f14033de4d7b3c2cc426892487e86f567d",
+      "size": 4935,
       "role": "documentation"
     },
     {
@@ -63,8 +63,8 @@
     },
     {
       "path": "app.js",
-      "sha256": "a7a1a9539ee33975c3079703e01a83bdeb8be0d8ae4d466e4a4245ccef82f450",
-      "size": 1035316,
+      "sha256": "c26b2c4e94c30fd61382e9e38ba7d045647925a78ffc8943cc6991a87634f321",
+      "size": 1037777,
       "role": "runtime"
     },
     {
@@ -129,13 +129,13 @@
     },
     {
       "path": "desirecore-theme.js",
-      "sha256": "114730256636be85d0587248e0331ad55dba8f3b8bb4266b26872fa60e8bfaf4",
-      "size": 8141,
+      "sha256": "1f285243672d7b52c06116485463c47e164bed1887cc0e4534fd7d05fb1c535a",
+      "size": 8813,
       "role": "runtime"
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "8ad30164a0b1e281fa2d01d7db7ce4c69cf29e3c9d47440a295e518d33ae7031",
+      "sha256": "a97212017a0d18d59d9f640f9df6c3889774c515217a1f40cb0ba545980d6626",
       "size": 16305,
       "role": "documentation"
     },
@@ -303,8 +303,8 @@
     },
     {
       "path": "index.html",
-      "sha256": "42164ca2a1ee3e97b08f32a8044dc3f3d64e488c6284061418a69958d63a2714",
-      "size": 56703,
+      "sha256": "a9c74884c948dd192874a66829684d617d35c245abf6645473f76ebf32f2a878",
+      "size": 56786,
       "role": "ui"
     },
     {
@@ -699,13 +699,13 @@
     },
     {
       "path": "npm-shrinkwrap.json",
-      "sha256": "890afe22c1c28053c0e9a96c0f77d6391eeb7197c982d55a9fc1b83a8716995e",
+      "sha256": "32e42a7e0e034cbf6193b4d65f4849b99f024db9f598a0487846e1b1411fa501",
       "size": 353,
       "role": "runtime"
     },
     {
       "path": "package.json",
-      "sha256": "e861013de6199dc7723e7bae9ed60650c3f084275ee1ca90576763001184e0ba",
+      "sha256": "4d70a5ccaf4dcef74fcd17dcdb39c7874d0fcd098c35c6a7cf4abb4a1ceaccaa",
       "size": 1678,
       "role": "dependency"
     },
@@ -804,11 +804,23 @@
       "sha256": "64d410cd4c4bbaba450979388210e2c54a90416eb054ac7f56e23a60853f66e7",
       "size": 3393,
       "role": "runtime"
+    },
+    {
+      "path": "ui-copy.zh-CN.js",
+      "sha256": "69d8a766218d5baa608e049d60a7c3fe2521c8651ee71b75b0a1de9aac39aa66",
+      "size": 41775,
+      "role": "runtime"
+    },
+    {
+      "path": "ui-language.js",
+      "sha256": "d80acfb65eee2179dfd1e8b281e59a7e27870876e91200a29b004a0c40f0ef5c",
+      "size": 3624,
+      "role": "runtime"
     }
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "91cb791fb4c4eebcf621f292c4bbbcbe9cc180269570acb234e26313e7e29827"
+    "sha256": "3905f8db137297d522865ebfcf538ff6351d9dadad61f8959c1338b155f61ac6"
   },
   "supportedPlatforms": [
     "darwin",
@@ -841,5 +853,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "c1bdb5c167f47a35e78347e5daa36c02d3717498e1a96da39f86592a86099174"
+  "releaseDigest": "925f795843df1b8b8f75c45d016a4af9dfbd22e20b0083361939f9bdef7f7f3f"
 }

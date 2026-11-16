@@ -61,6 +61,7 @@
     const doc = win.document, target = doc.documentElement;
     const system = win.matchMedia("(prefers-color-scheme: dark)");
     let source = "system", revision = 0, eventVersion = 0, disposed = false, cached = null, unsubscribe;
+    let hostLocale, localeEventVersion = 0;
     const supports = (property, value) => !!win.CSS?.supports(property, value);
     // Resolve CSS color-mix/alpha values through a real color property once per
     // appearance revision. Canvas receives computed colors, not CSS variables.
@@ -103,6 +104,14 @@
       changed();
       return true;
     }
+    function applyLocale(locale) {
+      if (disposed || (locale !== "zh-CN" && locale !== "en-US")) return false;
+      if (locale !== hostLocale) {
+        hostLocale = locale;
+        win.dispatchEvent(new win.CustomEvent("desirecore:localechange", { detail: locale }));
+      }
+      return true;
+    }
     function dispose() {
       if (disposed) return;
       unsubscribe?.();
@@ -114,7 +123,7 @@
       fallback();
       disposed = true;
     }
-    const publicApi = Object.freeze({ snapshot });
+    const publicApi = Object.freeze({ snapshot, hostLocale: () => hostLocale });
     win.DesireCoreTheme = publicApi;
     fallback();
     system.addEventListener("change", fallback);
@@ -124,13 +133,16 @@
     const bridge = win.top === win ? win.desirecoreApp : null;
     if (bridge && typeof bridge.call === "function") {
       const connectedAt = eventVersion;
+      const localeConnectedAt = localeEventVersion;
       try {
         unsubscribe = bridge.onEvent?.((event) => {
           if (record(event) && event.type === "appearance-changed" && apply(event.appearance)) eventVersion += 1;
+          if (record(event) && event.type === "locale-changed" && applyLocale(event.locale)) localeEventVersion += 1;
         });
       } catch { /* A host without events may still provide its initial snapshot. */ }
       Promise.resolve().then(() => disposed ? null : bridge.call("connect")).then((connection) => {
         if (!disposed && connectedAt === eventVersion && record(connection)) apply(connection.appearance);
+        if (!disposed && localeConnectedAt === localeEventVersion && record(connection)) applyLocale(connection.locale);
       }, () => { /* Independent preview remains on its system fallback. */ });
     }
     return publicApi;

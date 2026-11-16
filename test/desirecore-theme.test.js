@@ -62,6 +62,7 @@ test("standalone preview follows live system appearance without persistent prefe
   const h = harness(); const api = install(h.win);
   assert.equal(api.snapshot().theme, "light");
   assert.equal(api.snapshot().source, "system");
+  assert.equal(api.hostLocale(), undefined);
   assert.ok(Object.isFrozen(api.snapshot().palette));
   assert.deepEqual(Object.keys(api.snapshot().palette), [...Object.keys(PALETTE_PROPERTIES), "fontMono"]);
   h.media.matches = true; h.media.listener();
@@ -70,6 +71,28 @@ test("standalone preview follows live system appearance without persistent prefe
   assert.equal(h.events.at(-1).detail, api.snapshot());
   assert.equal(install(h.win), api);
   assert.equal(h.listeners.has("message"), false);
+});
+
+test("explicit host language is independent of appearance and a late connection cannot replace a newer preference", async () => {
+  let listener, finishConnect;
+  const h = harness({ bridge: {
+    onEvent(fn) { listener = fn; },
+    call() { return new Promise(resolve => { finishConnect = resolve; }); },
+  } });
+  h.win.navigator = { language: "en-US" };
+  const api = install(h.win);
+  await flush();
+  listener({ type: "locale-changed", locale: "zh-CN" });
+  finishConnect({ locale: "en-US", appearance: makeAppearance("dark") });
+  await flush();
+  assert.equal(api.hostLocale(), "zh-CN");
+  assert.equal(api.snapshot().theme, "dark");
+  listener({ type: "locale-changed", locale: "unsupported" });
+  assert.equal(api.hostLocale(), "zh-CN");
+  h.win.navigator.language = "zh-CN";
+  listener({ type: "locale-changed", locale: "en-US" });
+  assert.equal(api.hostLocale(), "en-US");
+  assert.deepEqual(h.events.filter(event => event.type === "desirecore:localechange").map(event => event.detail), ["zh-CN", "en-US"]);
 });
 
 test("new host events win over old connect replies, and same-scheme token changes invalidate Canvas palette", async () => {
