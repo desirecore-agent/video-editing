@@ -8,12 +8,39 @@ const require=createRequire(import.meta.url);
 const ROOT=fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'));
 const ManagedRuntime=require('../managed-runtime.js');
 const {verifyFixedRelease}=require('./release.js');
-export const HELP=`视频剪辑 0.1.3
+export const HELP=`视频剪辑 ${require('../package.json').version}
 node desirecore/cli.mjs start --data-dir <owned application data>
 node desirecore/cli.mjs setup-runtime --data-dir <owned application data>
-node desirecore/cli.mjs status|identity|mcp --runtime-file <actual runtime response snapshot.json>
+node desirecore/cli.mjs connection --binding-file <actual AppAuthoring runtime_read response.json>
+node desirecore/cli.mjs status|identity|mcp|mcp-config --runtime-file <actual runtime response snapshot.json>
+node desirecore/cli.mjs docs [--section <manual heading>]
 
-status, identity and mcp never install or start an application. A runtime-file is a connection hint from actual owner responses, not authorization. It contains dataDir, port, instanceId, scopeId, runtimeGeneration and releaseDigest; no credentials or runtime proof.`;
+status, identity, connection, mcp-config, docs and mcp never install or start an application. A runtime-file is a connection hint from actual owner responses, not authorization. It contains dataDir, port, instanceId, scopeId, runtimeGeneration and releaseDigest; no credentials or runtime proof. connection writes that snapshot to stdout after matching the platform binding to the existing service. Configure the returned MCP entry through the existing authorized MCP configuration flow; association alone does not configure tools.`;
+function readConnectionJSON(file){
+ if(!file)throw Error('A connection JSON file is required');
+ const stat=fs.lstatSync(file);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>65536)throw Error('Connection input must be a regular JSON file of at most 64 KiB');
+ return JSON.parse(fs.readFileSync(file,'utf8'));
+}
+export async function connectionFromBinding(input,{fetch:fetchImpl=fetch,materialRoot=ROOT}={}){
+ const binding=(input?.data??input)?.binding;
+ if(!binding||binding.schemaVersion!==1||binding.providerId!=='task-host'||binding.health!=='healthy'
+   || typeof binding.runtimeGeneration!=='string'||!binding.runtimeGeneration
+   || !/^[a-f0-9]{64}$/.test(binding.releaseDigest))throw Error('Use the healthy binding from the actual AppAuthoring runtime_read response; repair/start the application through its original owner first');
+ const scopeId=binding.scope?.kind==='installation'?binding.scope.installationId:binding.scope?.kind==='preview'?binding.scope.previewId:null;
+ if(typeof scopeId!=='string'||!scopeId)throw Error('Runtime binding has no current installation/preview scope');
+ const url=new URL(binding.url);
+ if(url.protocol!=='http:'||!['127.0.0.1','localhost','[::1]'].includes(url.hostname)||!url.port||url.username||url.password||url.hash)
+   throw Error('Video-editing connection requires the actual local HTTP task-host binding');
+ verifyFixedRelease(materialRoot,binding.releaseDigest);
+ const response=await fetchImpl(url.origin+'/api/desirecore/instance',{signal:AbortSignal.timeout(5000),redirect:'error'});
+ if(response.status!==200)throw Error('Existing editor instance unavailable; inspect AppAuthoring runtime_read before recovery');
+ const text=await response.text();if(Buffer.byteLength(text)>65536)throw Error('Runtime instance exceeds 64 KiB');
+ const instance=JSON.parse(text);
+ if(instance.managed!==true||instance.scopeId!==scopeId||instance.runtimeGeneration!==binding.runtimeGeneration||instance.releaseDigest!==binding.releaseDigest)
+   throw Error('Existing service does not match the platform managed binding; use the original runtime owner to repair/start it, never invent identity fields');
+ const snapshot={schemaVersion:1,dataDir:instance.dataDir,port:Number(url.port),instanceId:instance.instanceId,scopeId,runtimeGeneration:binding.runtimeGeneration,releaseDigest:binding.releaseDigest};
+ return verifiedRuntime(snapshot,{fetch:fetchImpl,materialRoot});
+}
 export function readRuntimeFile(file){
  if(!file)throw Error('--runtime-file is required; obtain current facts from the installed application owner');
  file=path.resolve(file);const stat=fs.lstatSync(file);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>65536)throw Error('runtime-file must be a regular JSON file of at most 64 KiB');
@@ -42,10 +69,22 @@ export async function main(args=process.argv.slice(2)){
  const [command,...rest]=args;
  if(!command||command==='help'||command==='--help'||command==='-h'){console.log(HELP);return;}
  if(command==='--version'||command==='-v'){console.log(require('../package.json').version);return;}
+ if(command==='docs'){
+  const manual=fs.readFileSync(path.join(ROOT,'docs/editor-guide.md'),'utf8'),i=rest.indexOf('--section');
+  const section=i<0?'':String(rest[i+1]||'').toLowerCase();
+  const parts=manual.split(/^(?=## )/m).filter(p=>!section||p.startsWith('## ')&&p.slice(0,p.indexOf('\n')).toLowerCase().includes(section));
+  if(!parts.length)throw Error('Manual section not found');console.log(parts.join('\n'));return;
+ }
+ if(command==='connection'){
+  const i=rest.indexOf('--binding-file');
+  if(i<0||!rest[i+1])throw Error('--binding-file is required; save the actual AppAuthoring runtime_read response');
+  console.log(JSON.stringify(await connectionFromBinding(readConnectionJSON(rest[i+1])),null,2));return;
+ }
  if(command==='setup-runtime'){const {dataRoot,setupRuntime}=require('./runtime-resolver.js');const runtime=await setupRuntime(dataRoot(rest));console.log(JSON.stringify({target:runtime.receipt.target,root:runtime.root}));return;}
  if(command==='start'){const {dataRoot,applyRuntime}=require('./runtime-resolver.js');const home=dataRoot(rest);applyRuntime(home);if(process.env.APP_DATA_DIR||process.env.APP_DATA_ROOT)process.env.FABLECUT_MANAGED='1';require('../server.js');return;}
- if(!['status','identity','mcp'].includes(command))throw Error('Unknown command: '+command);
+ if(!['status','identity','mcp','mcp-config'].includes(command))throw Error('Unknown command: '+command);
  const i=rest.indexOf('--runtime-file'),data=readRuntimeFile(i<0?undefined:rest[i+1]);const actual=await verifiedRuntime(data);
+ if(command==='mcp-config'){console.log(JSON.stringify({command:process.execPath,args:[path.join(ROOT,'desirecore/cli.mjs'),'mcp','--runtime-file',path.resolve(rest[i+1])],cwd:ROOT},null,2));return;}
  if(command!=='mcp'){console.log(JSON.stringify({status:'running',...actual},null,2));return;}
  require('./runtime-resolver.js').applyRuntime(data.dataDir);
  Object.assign(process.env,bindingEnvironment(data));

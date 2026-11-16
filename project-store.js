@@ -3,6 +3,7 @@
    Project switches and edits are synchronous in that one event loop; no
    cross-process lock file can survive a crashed writer. */
 const fs=require("fs"),crypto=require("crypto");
+const ProjectOps=require("./project-ops");
 const bases=new WeakMap();
 function read(file){const doc=JSON.parse(fs.readFileSync(file,"utf8").replace(/^\uFEFF/,""));bases.set(doc,{revision:doc.revision||0,projectId:doc.projectId});return doc;}
 function base(doc){return bases.get(doc);}
@@ -18,6 +19,8 @@ function commit(file,doc,expected=base(doc)?.revision,options={}){
  if(options.projectId&&options.projectId!==cur.projectId)throw Object.assign(Error("CONFLICT — another project is open"),{code:409,revision:current});
  if(!Number.isInteger(expected)||expected!==current||doc.revision!==current+1)throw Object.assign(Error(`CONFLICT — expected revision ${expected}, current revision ${current}`),{code:409,revision:current});
  if(cur.projectId)incoming.projectId=cur.projectId;
+ ProjectOps.checkProjectStructure(incoming);
+ ProjectOps.checkProject(incoming);
  if(options.mutationId)incoming._lastMutation={id:options.mutationId,bodyHash};
  atomic(file,incoming);bases.set(doc,{revision:doc.revision,projectId:incoming.projectId});return {revision:doc.revision,replayed:false};
 }

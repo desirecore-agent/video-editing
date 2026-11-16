@@ -645,7 +645,12 @@
   "Open": "打开",
   "Retry": "重试",
   "Remove from the queue": "从队列移除",
-  "No batch outputs yet — add the settings above, or a typical set": "暂无批量输出。可添加当前设置或常用组合。"
+  "No batch outputs yet — add the settings above, or a typical set": "暂无批量输出。可添加当前设置或常用组合。",
+  "Keyword emphasis": "重点着色",
+  "Keyword or phrase": "重点词或短语",
+  "Selected keywords keep their colour throughout the caption, independently of speech timing.": "重点词在整句显示期间持续着色，与逐词动画和语音时间无关。",
+  "Add": "添加",
+  "Remove": "移除"
 });
   if (typeof module !== "undefined" && module.exports) module.exports = copy;
   else globalThis.VideoEditorChineseCopy = copy;

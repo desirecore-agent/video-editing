@@ -45,3 +45,19 @@ test("source-only draft cannot substitute for a fixed material manifest",()=>{
  try{fs.mkdirSync(path.join(tmp,"desirecore"));fs.writeFileSync(path.join(tmp,"desirecore/app-release.json"),JSON.stringify(manifestFor(readPayload())));assert.throws(()=>verifyFixedRelease(tmp),/source drafts cannot attach/);}
  finally{fs.rmSync(tmp,{recursive:true,force:true});}
 });
+test("connection bootstraps from a real platform binding and rejects unmanaged or stale services",async()=>{
+ const {connectionFromBinding}=await import('../desirecore/cli.mjs'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'ve-binding-'));
+ try{
+  const materialRoot=path.join(tmp,'material'),manifest=fixedMaterial(materialRoot),dataDir=path.join(tmp,'data');fs.mkdirSync(dataDir);
+  const binding={schemaVersion:1,providerId:'task-host',health:'healthy',url:'http://127.0.0.1:7777/',releaseDigest:manifest.releaseDigest,runtimeGeneration:'generation-a',scope:{kind:'installation',installationId:'install-a'}};
+  const instance={managed:true,dataDir:fs.realpathSync(dataDir),port:7777,instanceId:'service-a',scopeId:'install-a',runtimeGeneration:'generation-a',releaseDigest:manifest.releaseDigest,proof:'private-proof'};
+  let peer=instance;
+  const fetch=async()=>new Response(JSON.stringify(peer));
+  const result=await connectionFromBinding({binding},{fetch,materialRoot});assert.equal(result.instanceId,'service-a');assert.equal(JSON.stringify(result).includes('private-proof'),false);
+  for(const change of [{managed:false},{runtimeGeneration:'generation-b'},{scopeId:'other-install'}]){
+   peer={...instance,...change};await assert.rejects(connectionFromBinding({binding},{fetch,materialRoot}),/original runtime owner/);
+  }
+  peer=instance;
+  await assert.rejects(connectionFromBinding({binding:{...binding,url:'http://example.com:7777/'}},{fetch,materialRoot}),/local HTTP/);
+ }finally{fs.rmSync(tmp,{recursive:true,force:true});}
+});

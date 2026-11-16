@@ -1,9 +1,10 @@
 "use strict";
 const test=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path");
 const Store=require("../project-store"),Snapshots=require("../export-snapshot"),{createExportJobs}=require("../export-jobs");
+const {seedProject}=require("./helpers");
 function temp(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),"fablecut-poc-"));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));return dir;}
 test("two readers cannot overwrite each other with a larger self-selected revision",t=>{
- const dir=temp(t),file=path.join(dir,"project.json");fs.writeFileSync(file,JSON.stringify({revision:1,name:"initial"}));
+ const dir=temp(t),file=path.join(dir,"project.json");fs.writeFileSync(file,JSON.stringify(seedProject({name:"initial"})));
  const human=Store.read(file),agent=Store.read(file);human.revision=2;human.name="human";Store.commit(file,human);
  agent.revision=100;agent.name="stale agent";assert.throws(()=>Store.commit(file,agent),/CONFLICT/);
  assert.deepEqual(Store.read(file),human);assert.equal(fs.existsSync(file+".write-lock"),false);

@@ -288,7 +288,7 @@ test("fablecut_set_project validates the document before writing it", async (t) 
   const cases = [
     [{ project: "nope" }, /must be an object/i],
     [{ project: { clips: [] } }, /clips.*media/i],
-    [{ project: { media: [], clips: [{ track: "V1", start: 0, duration: 1 }] } }, /needs id, track/i],
+    [{ project: { media: [], clips: [{ track: "V1", start: 0, duration: 1 }] } }, /Invalid complete project: clips\[0\]\.id is required/i],
     [{ project: { media: [], clips: [{ id: "c", kind: "video", mediaId: "m_ghost", track: "V1", start: 0, duration: 1 }] } },
       /unknown mediaId/i],
   ];

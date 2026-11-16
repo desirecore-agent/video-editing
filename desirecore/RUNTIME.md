@@ -1,6 +1,6 @@
 # 视频剪辑运行与数据合同
 
-产品名“视频剪辑”，版本 0.1.6。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
+产品名“视频剪辑”，版本 0.1.7。应用定义 UUID `0171a763-ad35-4b94-98b9-204782817b44` 是产品身份，不是安装 ID、Agent ID、owner 或运行代际。入口为 `editor` / `video-editing:editor`。关联智能体“视频剪辑师”在独立仓库，运行身份一律采用实际安装/导入响应。
 
 ## 导出附件交付 / Export attachment delivery
 
@@ -42,7 +42,7 @@ macOS/Linux ZIP 解压使用系统 `unzip`，Windows 使用系统 `tar.exe`；�
 
 正常停止原 owner 并确认无活动编码后，以已授权文件工具备份整个数据根（含工程索引、原媒体、工程 library 和回执），保留相对路径、文件摘要及外部媒体引用。缓存 `runtime/` 可排除但应保留材料版本和资产清单。独立系统盘上的原媒体不在数据根内，须一并备份；工程文件本身不包含它们。
 
-恢复时保持应用停止，把备份还原到新的独立数据根，核文件摘要、媒体引用和格式版本，再显式准备资产并由原 owner 启动。不得把旧 PID、URL、runtime proof、服务锁或旧审批当作当前授权。陈旧锁须核实际进程后由精确 owner 清理。先用测试工程验证读取、保存与导出，再继续编辑。0.1.3 只读写 `video-editing-home-v1`，没有自动迁移、降级或后台续渲染；格式不支持时保持原数据并明确失败。
+恢复时保持应用停止，把备份还原到新的独立数据根，核文件摘要、媒体引用和格式版本，再显式准备资产并由原 owner 启动。不得把旧 PID、URL、runtime proof、服务锁或旧审批当作当前授权。陈旧锁须核实际进程后由精确 owner 清理。先用测试工程验证读取、保存与导出，再继续编辑。0.1.7 只读写 `video-editing-home-v1`，没有自动迁移、降级或后台续渲染；格式不支持时保持原数据并明确失败。
 
 ## 编辑与导出限制
 
@@ -63,3 +63,9 @@ GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 
 正常收尾只在原浏览器确认 close 后删除本 job 的一次性 profile；转录的保留缓存不删。服务被强杀后无法执行自己的 profile 清理；正常服务停止也可能先于浏览器 close/finalizer 退出，此时不保证 profile 清理或 TERM/KILL 兜底完成，OS 仍会关闭管道。旧一次性 profile 可能留存；重启不扫描临时目录、猜测归属或按旧 PID 补删。此 profile 生命周期与原 job 的 `exports` 临时产物登记、恢复清理和 `cleanup` 回执分别处理，不将 profile 移除冒作编码产物已清理。
 
 原可选 Whisper ASR、MediaPipe、Google Fonts 仍可连接其上游外部资源，模型和动态网络资源不在本原生资产清单内；没有默认收费生成或隐含 Provider。旧 WebCodecs/MediaRecorder UI 实时输出未满足固定输入合同，明确不可用。
+
+## 接入交接与画面准入
+
+MCP 尚未配置时，先从平台 `AppAuthoring runtime_read` 取得当前 healthy binding，并用本材料的 `connection --binding-file` 生成已核连接快照。`mcp-config --runtime-file` 输出通用 stdio 启动描述 `{command,args,cwd}`；DesireCore 原 MCP 配置合同还须 `transport:"stdio"`，沿已有授权入口按当前 Schema 应用，下一正常轮次重新发现并真实调用 `fablecut_status` 才能证明连接可用。`docs --section "REST API"` 在服务未启动时也可读取同版权威手册。一般 Bash 进程不因运行在 TaskHost 就取得应用代际；缺合同先沿原纳管流程恢复。
+
+导出对启用且正在显示的视频逐帧检查实际解码画面；`VIDEO_FRAME_UNAVAILABLE` 是原 job 失败，不输出成功成片引用。它不按黑色像素拒绝合法黑场。字幕 `props.emphasis` 保存静态关键词与 RGB 颜色，持续作用于整句显示期间，GUI/MCP/导出共用此数据；不是逐词跟读效果。完整工程保存先通过原提交点的结构和引用校验，失败保留原字节与修订。

@@ -8,6 +8,8 @@ DesireCore owns installation, permissions, the process lifecycle, runtime genera
 
 ## Use and delivery
 
+Version 0.1.7 checks decoded source pictures before exporting, validates complete project replacements, and adds persistent keyword colours plus verified connection/MCP configuration helpers. Contracts and examples are in the [editor guide](docs/editor-guide.md).
+
 The editor follows the interface language selected in DesireCore Settings. Simplified Chinese and English can switch while the editor is open, preserving the current page and draft. If the host supplies no language, the editor defaults to Simplified Chinese. Open it with `?lang=en-US` to select English without a host language.
 
 Exports become attachments only after normal authorized delivery. Check the completed job and the current managed instance, download its returned export URL to the Agent's already authorized workspace, verify the file, and attach that workspace path. Installing/binding the app or connecting MCP does not grant attachment access to the application data root. A failed approval/download remains a failure; never retry delivery with the unauthorized source path or an older movie.
@@ -35,6 +37,6 @@ Resolved declared local files are snapshotted file by file. This is not a transa
 
 `npm run test:delivery` checks packaging and runtime integrity boundaries; `npm run test:regression` runs the focused editing/export suite with bounded concurrency. CI runs static checks, the full upstream unit suite, package installation checks and explicit per-OS runtime preparation. The editor core has no npm runtime dependency.
 
-Version **0.1.3** is maintained in this fork. Upstream source is `61bf46babca82214c162c0650e47a81c3530982c` (1.18.0); original history and [MIT license](LICENSE) are retained. See [notices and dependency licenses](NOTICE.md). Upstream npm/MCP publication and Discord workflows are removed.
+Version **0.1.7** is maintained in this fork. Upstream source is `61bf46babca82214c162c0650e47a81c3530982c` (1.18.0); original history and [MIT license](LICENSE) are retained. See [notices and dependency licenses](NOTICE.md). Upstream npm/MCP publication and Discord workflows are removed.
 
 Pinned native assets use the concise `r2` cache revision. Windows preparation checks Chromium module and ICU path lengths before creating directories or downloading files; extended-length process paths alone do not remove Chromium's internal startup limit. Existing caches stay intact, and the new revision requires an explicit preparation with a fresh receipt.

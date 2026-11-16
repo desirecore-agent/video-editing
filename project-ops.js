@@ -29,15 +29,72 @@
   const api = factory(dep("./audio-fx", "FableCutFx"), dep("./edit-ops", "FableCutEdit"), dep("./color", "FableCutColor"),
     dep("./mask", "FableCutMask"), dep("./tracker", "FableCutTracker"), dep("./motion", "FableCutMotion"),
     dep("./comp", "FableCutComp"), dep("./templates", "FableCutTemplates"), dep("./media-lib", "FableCutMedia"),
-    dep("./delivery", "FableCutDelivery"), dep("./sequences", "FableCutSeq"));
+    dep("./delivery", "FableCutDelivery"), dep("./sequences", "FableCutSeq"), dep("./text-emphasis", "FableCutTextEmphasis"));
   if (node) module.exports = api;
   else root.FableCutProjectOps = api;
-})(typeof self !== "undefined" ? self : this, function (FX, EditOps, Color, Mask, Tracker, Motion, CompLib, Templates, MediaLib, Delivery, SeqLib) {
+})(typeof self !== "undefined" ? self : this, function (FX, EditOps, Color, Mask, Tracker, Motion, CompLib, Templates, MediaLib, Delivery, SeqLib, TextEmphasis) {
   "use strict";
 
   const DEFAULT_TRACKS = EditOps.DEFAULT_TRACKS;
   const uid = () => Math.random().toString(36).slice(2, 9);
   const basename = (p) => String(p).split(/[\\/]/).pop();
+
+  /** Complete replacement contract. Extra creative/forward-compatible fields survive. */
+  const PROJECT_SCHEMA = {
+    $schema: "http://json-schema.org/draft-07/schema#",
+    type: "object", description: "Complete editable project submitted to the single service-owned commit boundary.",
+    required: ["name", "width", "height", "fps", "revision", "media", "clips"],
+    properties: {
+      name: { type: "string", description: "Project display name; omission is not a request to rename or clear it." },
+      width: { type: "integer", minimum: 1, description: "Canvas width in pixels." },
+      height: { type: "integer", minimum: 1, description: "Canvas height in pixels." },
+      fps: { type: "number", exclusiveMinimum: 0, description: "Positive finite timeline frame rate." },
+      revision: { type: "integer", minimum: 0, description: "Optimistic concurrency revision; the service also verifies the exact predecessor." },
+      media: { type: "array", items: { type: "object", required: ["id", "kind", "src"],
+        properties: { id: { type: "string", minLength: 1, description: "Unique media identity." },
+          kind: { type: "string", enum: ["video", "audio", "image", "svg"], description: "Source media type." },
+          src: { type: "string", minLength: 1, description: "Declared source reference; an offline file may still be retained." } } },
+        description: "Complete media registry, including files referenced by clips." },
+      clips: { type: "array", items: { type: "object", required: ["id", "kind", "track", "start", "duration"],
+        properties: { id: { type: "string", minLength: 1, description: "Unique clip identity in this timeline." },
+          kind: { type: "string", enum: ["video", "audio", "image", "svg", "text", "adjust", "shape", "null", "comp"], description: "Clip rendering type." },
+          track: { type: "string", minLength: 1, description: "Target track identity." },
+          start: { type: "number", minimum: 0, description: "Finite timeline start in seconds." },
+          duration: { type: "number", exclusiveMinimum: 0, description: "Positive finite duration in seconds." } } },
+        description: "Complete active timeline; an empty array is an explicit empty timeline." },
+    },
+  };
+  const invalidStructure = at => { throw new Error(`Invalid complete project: ${at}`); };
+  function checkObject(value, at) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) invalidStructure(`${at} must be an object`);
+  }
+  function checkStructureFields(value, schema, at) {
+    checkObject(value, at);
+    for (const k of schema.required) if (!Object.hasOwn(value, k)) invalidStructure(`${at}.${k} is required; PUT replaces the complete document`);
+    for (const [k, rule] of Object.entries(schema.properties)) {
+      const v = value[k];
+      if (rule.type === "array") { if (!Array.isArray(v)) invalidStructure(`${at}.${k} must be an array`); continue; }
+      if (rule.type === "integer" ? !Number.isInteger(v) : typeof v !== rule.type) invalidStructure(`${at}.${k} must be ${rule.type}`);
+      if (typeof v === "number" && (!Number.isFinite(v) || (rule.minimum != null && v < rule.minimum)
+        || (rule.exclusiveMinimum != null && v <= rule.exclusiveMinimum))) invalidStructure(`${at}.${k} is out of range`);
+      if (rule.minLength && v.length < rule.minLength) invalidStructure(`${at}.${k} must not be empty`);
+      if (rule.enum && !rule.enum.includes(v)) invalidStructure(`${at}.${k} has an unknown kind`);
+    }
+  }
+  function checkStructureItems(items, schema, at) {
+    if (!Array.isArray(items)) invalidStructure(`${at} must be an array`);
+    const ids = new Set(); // identities belong to this one timeline/registry
+    for (const [i, item] of items.entries()) {
+      checkStructureFields(item, schema, `${at}[${i}]`);
+      if (ids.has(item.id)) invalidStructure(`${at}[${i}].id is duplicated: ${item.id}`);
+      ids.add(item.id);
+      if (item.props != null) checkObject(item.props, `${at}[${i}].props`);
+    }
+  }
+  function checkProjectStructure(doc) {
+    checkStructureFields(doc, PROJECT_SCHEMA, "project");
+    for (const key of ["media", "clips"]) checkStructureItems(doc[key], PROJECT_SCHEMA.properties[key].items, key);
+  }
 
   // the UI persists default-valued props on every clip; the compact view hides
   // them so it only shows what actually deviates
@@ -1287,15 +1344,23 @@
       if (c.kind === "comp" && !CompLib.getComp(doc, c.compId)) throw new Error(`${at}clip ${c.id} references unknown compId ${c.compId}`);
       if (c.kind === "comp" && where && CompLib.wouldCycle(doc, where, c.compId))
         throw new Error(`comp ${where}: clip ${c.id} uses comp ${c.compId}, which is missing or would contain itself`);
+      if (c.props?.emphasis !== undefined) TextEmphasis.validate(c.props.emphasis);
       if (c.kind === "shape" && c.props && c.props.shapes != null) {
         let n;
         try { n = Motion.normalizeShapes(c.props.shapes, true); } catch (err) { throw new Error(`${at}clip ${c.id}: props.${err.message}`); }
         if (n) c.props.shapes = n; else delete c.props.shapes;
       }
     };
-    for (const c of doc.clips) checkClip(c, null);
-    for (const comp of doc.comps || []) for (const c of comp.clips) checkClip(c, comp.id);
-    for (const seq of SeqLib.others(doc)) for (const c of seq.clips || []) checkClip(c, null, seq.id);
+    const checkTimeline = (clips, comp, seq) => {
+      // Normalize containers first: parked defaults and the open sequence's
+      // stripped mirror are existing format rules, not extra timelines.
+      checkStructureItems(clips, PROJECT_SCHEMA.properties.clips.items,
+        comp ? `comp ${comp}.clips` : seq ? `sequence ${seq}.clips` : "clips");
+      for (const c of clips) checkClip(c, comp, seq);
+    };
+    checkTimeline(doc.clips, null);
+    for (const comp of doc.comps || []) checkTimeline(comp.clips, comp.id);
+    for (const seq of SeqLib.others(doc)) checkTimeline(seq.clips || [], null, seq.id);
   }
 
   const TEXT_ONLY_NOTE = [
@@ -1354,6 +1419,6 @@
     ].filter(Boolean).join("\n");
   }
 
-  return { applyPatch, compactView, checkProject, timelineEdit, PROP_DEFAULTS,
+  return { applyPatch, compactView, checkProject, checkProjectStructure, PROJECT_SCHEMA, timelineEdit, PROP_DEFAULTS,
     TEXT_ONLY_NOTE, describeScopeLines, describeScopes, describeTrack };
 });
