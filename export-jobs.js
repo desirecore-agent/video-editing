@@ -265,7 +265,10 @@ function createExportJobs(opts) {
       "--headless=new", "--enable-gpu", `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check",
       "--disable-extensions", "--mute-audio", "--autoplay-policy=no-user-gesture-required",
       "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
-      "--disable-backgrounding-occluded-windows", "--window-size=1600,900",
+      // This is the editor UI's viewport, not the project/export canvas. A
+      // larger hidden surface can lose the Windows GPU context while decoding
+      // portrait video; keep the controls compact and render at project size.
+      "--disable-backgrounding-occluded-windows", "--window-size=800,600",
       opts.url(j.id),
     ], { profileDir, keep: !!kept });
     const { proc } = browser;

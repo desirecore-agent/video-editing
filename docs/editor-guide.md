@@ -2580,6 +2580,11 @@ fonts are not a complete frozen dependency closure.
   replaced by another renderer. Other invalid values are rejected rather than
   defaulted. Frame, scopes, tracking and transcription tools retain their own
   tab/headless choices.
+- The owned browser uses an 800×600 viewport for the editor controls. This does
+  not change the program canvas, effect sampling or delivery size: a saved
+  2160×3840 project still renders on that 4K canvas. A larger hidden UI surface
+  triggered Windows GPU context loss during portrait-video acceptance. Inspect
+  actual video pixels; a running process or completed job alone is insufficient.
 - Long edits: `wait:false` returns a job id at once; poll with `{job:"x_…"}`
   and stop one with `{cancel:"x_…"}`. One export runs at a time.
 

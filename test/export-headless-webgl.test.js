@@ -20,14 +20,26 @@ const svgStart = source.indexOf("function parseSvgSize(");
 const svgEnd = source.indexOf("/* ═════════════ AI BACKGROUND", svgStart);
 assert(svgStart >= 0 && svgEnd > svgStart);
 const svgCode = source.slice(svgStart, svgEnd);
+const seekStart = source.indexOf("function notePresented(");
+const seekEnd = source.indexOf("/** Play forward until", seekStart);
+assert(seekStart >= 0 && seekEnd > seekStart);
+const seekCode = source.slice(seekStart, seekEnd);
+// Generated colour only: ffmpeg -f lavfi -i color=c=0x10b070:s=1080x1920:r=30
+// -t 0.5 -an -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p -movflags +faststart.
+const portraitVideo = fs.readFileSync(path.join(__dirname, "fixtures", "green-portrait.mp4"));
 
-test("the owned export browser renders effects and refuses invalid SVG", {
+test("the owned browser renders portrait video at 4K and validates effects/SVG", {
   skip: process.env.FABLECUT_WEBGL_TEST !== "1" && "requires explicit native WebGL acceptance environment",
   timeout: 30000,
 }, async t => {
   let resolveResult;
   const result = new Promise(resolve => { resolveResult = resolve; });
   const server = http.createServer((req, res) => {
+    if (req.url === "/portrait.mp4") {
+      res.setHeader("Content-Type", "video/mp4");
+      res.end(portraitVideo);
+      return;
+    }
     if (req.url === "/valid.svg" || req.url === "/invalid.svg") {
       res.setHeader("Content-Type", "image/svg+xml");
       res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red" ${req.url === "/invalid.svg" ? 'fill="blue"' : ""}/></svg>`);
@@ -52,6 +64,7 @@ test("the owned export browser renders effects and refuses invalid SVG", {
       ${svgCode}
       ${pixelCode}
       ${strokeCode}
+      ${seekCode}
       const gl = document.querySelector('canvas').getContext('webgl');
       const pixel = new Uint8Array(4);
       if (gl) {
@@ -80,9 +93,20 @@ test("the owned export browser renders effects and refuses invalid SVG", {
       const alphas = canvas => { const data=canvas.getContext('2d').getImageData(0,0,4,1).data;return [data[3],data[7],data[11],data[15]]; };
       const cases = [{bgRemove:true},{bgRemove:true,bgThreshold:60,bgSoftness:10},{bgRemove:true,bgThreshold:60,bgSoftness:0}];
       const gpu = cases.map(p=>{const cv=pixelPassGL({id:'qa'},p,foreground,0,0,4,4,4,4,4);return cv?alphas(cv):null;});
+      const hardwareGL=pixGL.gl;
       pixGL.tried=true;pixGL.gl=null;
       const cpu = cases.map(p=>alphas(pixelPass({id:'qa'},p,foreground,0,0,4,4,4,4)));
+      pixGL.gl=hardwareGL;
       (async()=>{
+        const video=document.createElement('video');video.muted=true;video.playsInline=true;
+        const loaded=new Promise((resolve,reject)=>{video.onloadeddata=resolve;video.onerror=()=>reject(Error('portrait video decode failed'));});
+        video.src='/portrait.mp4';await loaded;await hardSeekVideo(video,.2);
+        const actualVideo=pixelPassGL({id:'portrait'},{temperature:2},video,0,0,video.videoWidth,video.videoHeight,1080,1920,1080);
+        if(!actualVideo)throw Error('portrait video GPU pass unavailable');
+        const program=document.createElement('canvas');program.width=2160;program.height=3840;
+        const pg=program.getContext('2d',{willReadFrequently:true});pg.drawImage(actualVideo,0,0,2160,3840);
+        const portrait={source:[video.videoWidth,video.videoHeight],canvas:[program.width,program.height],pixel:[...pg.getImageData(1080,1920,1,1).data]};
+        video.pause();video.removeAttribute('src');video.load();
         await prepareSvgFrame({id:'valid-clip',mediaId:'valid'},.5);
         const svgValid=!!runtime.mediaAux.get('valid').img;
         sourceMap.valid='invalid';
@@ -92,8 +116,8 @@ test("the owned export browser renders effects and refuses invalid SVG", {
         let svgError;
         try { await prepareSvgFrame({id:'invalid-clip',mediaId:'invalid'},.5); }
         catch(error) { svgError=error.message; }
-        fetch('/result?data=' + encodeURIComponent(JSON.stringify({webgl:!!gl,pixel:[...pixel],strokes,gpu,cpu,svgValid,svgError,svgRelinkError})));
-      })();
+        fetch('/result?data=' + encodeURIComponent(JSON.stringify({webgl:!!gl,pixel:[...pixel],strokes,gpu,cpu,svgValid,svgError,svgRelinkError,portrait})));
+      })().catch(error=>fetch('/result?data='+encodeURIComponent(JSON.stringify({error:error.message}))));
     </script>`);
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -110,6 +134,7 @@ test("the owned export browser renders effects and refuses invalid SVG", {
   const rendered = await Promise.race([result, new Promise((_, reject) => {
     timer = setTimeout(() => reject(Error("export browser did not report WebGL capabilities")), 20000);
   })]);
+  assert.equal(rendered.error,undefined,rendered.error);
   assert.equal(rendered.webgl, true, "segmentation requires an available WebGL context");
   assert.deepEqual(rendered.pixel, [255, 0, 0, 255]);
   for (const stroke of rendered.strokes) {
@@ -126,5 +151,10 @@ test("the owned export browser renders effects and refuses invalid SVG", {
   assert.equal(rendered.svgValid,true);
   assert.match(rendered.svgError,/svg raster failed/);
   assert.match(rendered.svgRelinkError,/svg raster failed/);
+  assert.deepEqual(rendered.portrait.source,[1080,1920]);
+  assert.deepEqual(rendered.portrait.canvas,[2160,3840],"background UI dimensions do not reduce the output canvas");
+  const [red,green,blue,alpha]=rendered.portrait.pixel;
+  assert(red<50 && green>150 && blue>70 && blue<140 && alpha>250,
+    `decoded portrait pixels must survive the GPU compositor, got ${rendered.portrait.pixel}`);
   jobs.report(job.id, { status: "done", result: rendered });
 });
