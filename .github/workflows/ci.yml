@@ -42,7 +42,8 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - os: macos-15
+          # macos-15 ARM 多次因 hosted 容量不足未取得 runner；保留原生 ARM 检查，使用现行标准镜像。
+          - os: macos-26
             target: darwin-arm64
           - os: macos-15-intel
             target: darwin-x64
