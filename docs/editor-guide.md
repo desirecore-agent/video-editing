@@ -419,7 +419,14 @@ These are quick looks. For real grading use `props.grade` (see "Color" below).
 | `chromaKey` | "" | hex key color, e.g. `"#00ff00"` for green screen ("" = off) |
 | `chromaTolerance` | 26 | 0–100, how much color distance is keyed out |
 | `chromaSoftness` | 12 | 0–100, edge feather + spill suppression |
-| `bgRemove` | false | AI person cut-out (MediaPipe, loaded in the renderer on first use). Forced frames await the model and a fresh inference result; unavailable/failed masks refuse the original frame/export job with `BACKGROUND_MASK_UNAVAILABLE`. Preview remains best effort. |
+| `bgRemove` | false | AI person cut-out (MediaPipe, loaded in the renderer on first use). Forced frames await the model and a fresh inference result; unavailable/failed masks refuse the original frame/export job with `BACKGROUND_MASK_UNAVAILABLE`. Preview remains best effort. The owned headless browser enables GPU rendering; hardware/driver availability is still checked by the actual renderer. |
+
+Keyed/cutout media also consume the existing `strokeWidth` (default 0, clamped
+to 0–100 destination pixels) and `strokeColor` (default black) props. For example,
+`{bgRemove:true, strokeWidth:9, strokeColor:"#ffffff"}` draws a white silhouette
+behind the original person. Preview and export use the same alpha contour;
+it needs no duplicate media player or extra segmentation inference. The Keying /
+Cut-out inspector exposes these controls. Zero disables it.
 
 **Audio / time** (video/audio):
 | prop | default | notes |

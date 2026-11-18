@@ -6782,6 +6782,8 @@ function renderInspector(lite) {
       ${slider("chromaTolerance", 0, 100, 1, p.chromaTolerance)}
       ${slider("chromaSoftness", 0, 100, 1, p.chromaSoftness)}
       ${check("AI bg remove", "bgRemove", p.bgRemove)}
+      ${slider("strokeWidth", 0, 100, 0.5, p.strokeWidth, "px")}
+      ${row("Stroke col.", `<input type="color" data-k="strokeColor" value="${p.strokeColor || "#000000"}">`, "", "strokeColor")}
     </div>`;
   }
   if (c.kind === "video" || c.kind === "audio") {
@@ -11505,6 +11507,32 @@ function pixelPass(c, p, src, sx, sy, sw, sh, dw, dh) {
   return scratch;
 }
 
+/* Alpha-outline for keyed media. One reusable canvas, no extra media players or
+   inference. Existing stroke props use destination pixels, like text strokes. */
+const mediaStroke = document.createElement("canvas");
+function drawMediaStroke(target, source, p, dw, dh) {
+  const width = clamp(+p.strokeWidth || 0, 0, 100);
+  if (!width || !(dw > 0 && dh > 0)) return;
+  const w = source.width, h = source.height;
+  const rx = Math.max(1, Math.ceil(width * w / dw)), ry = Math.max(1, Math.ceil(width * h / dh));
+  const sw = w + rx * 2, sh = h + ry * 2;
+  if (mediaStroke.width !== sw) mediaStroke.width = sw;
+  if (mediaStroke.height !== sh) mediaStroke.height = sh;
+  const g = mediaStroke.getContext("2d");
+  g.clearRect(0, 0, sw, sh);
+  g.globalCompositeOperation = "source-over";
+  for (let i = 0; i < 16; i++) {
+    const angle = i * Math.PI / 8;
+    g.drawImage(source, rx + Math.cos(angle) * rx, ry + Math.sin(angle) * ry);
+  }
+  g.globalCompositeOperation = "source-in";
+  g.fillStyle = p.strokeColor || "#000000";
+  g.fillRect(0, 0, sw, sh);
+  g.globalCompositeOperation = "source-over";
+  const px = rx * dw / w, py = ry * dh / h;
+  target.drawImage(mediaStroke, -dw / 2 - px, -dh / 2 - py, dw + 2 * px, dh + 2 * py);
+}
+
 /* ═══════════ COLOR GRADE (props.grade — math in color.js) ═══════════
    One WebGL2 pass grades a clip's pixels before they are composited, in
    preview and export alike. Without WebGL2 the same math runs on the CPU
@@ -13026,6 +13054,7 @@ function drawClipPicture(c, W, H, t, layered) {
         captureGradeInput(c, [cp, 0, 0, cp.width, cp.height, cp.width, cp.height, dw, dh]);
       }
       if (grade) processed = gradeSource(processed, 0, 0, processed.width, processed.height, processed.width, processed.height, dw, dh, grade, matte) || processed;
+      drawMediaStroke(ctx2d, processed, p, dw, dh);
       ctx2d.drawImage(processed, 0, 0, processed.width, processed.height, -dw / 2, -dh / 2, dw, dh);
     } else if (captureGradeInput(c, [src, sx, sy, cw, ch, sw, sh, dw, dh]), grade && (graded = gradeSource(src, sx, sy, cw, ch, sw, sh, dw, dh, grade, matte))) {
       ctx2d.drawImage(graded, 0, 0, graded.width, graded.height, -dw / 2, -dh / 2, dw, dh);

@@ -260,7 +260,9 @@ function createExportJobs(opts) {
     if (kept) fs.mkdirSync(kept, { recursive: true });
     const profileDir = kept || fs.mkdtempSync(path.join(os.tmpdir(), "fablecut-export-"));
     const browser = createBrowserProcess(exe, [
-      "--headless=new", `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check",
+      // chrome-headless-shell otherwise forces software rendering and cannot
+      // create the WebGL context required by the shared segmentation compositor.
+      "--headless=new", "--enable-gpu", `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check",
       "--disable-extensions", "--mute-audio", "--autoplay-policy=no-user-gesture-required",
       "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
       "--disable-backgrounding-occluded-windows", "--window-size=1600,900",
