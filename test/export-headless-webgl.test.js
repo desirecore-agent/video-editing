@@ -16,14 +16,23 @@ const pixelStart = source.indexOf("const pixGL = ");
 const pixelEnd = source.indexOf("/* Alpha-outline", pixelStart);
 assert(pixelStart >= 0 && pixelEnd > pixelStart);
 const pixelCode = source.slice(pixelStart, pixelEnd);
+const svgStart = source.indexOf("function parseSvgSize(");
+const svgEnd = source.indexOf("/* ═════════════ AI BACKGROUND", svgStart);
+assert(svgStart >= 0 && svgEnd > svgStart);
+const svgCode = source.slice(svgStart, svgEnd);
 
-test("the owned export browser renders WebGL, mask refinement and scaled strokes", {
+test("the owned export browser renders effects and refuses invalid SVG", {
   skip: process.env.FABLECUT_WEBGL_TEST !== "1" && "requires explicit native WebGL acceptance environment",
   timeout: 30000,
 }, async t => {
   let resolveResult;
   const result = new Promise(resolve => { resolveResult = resolve; });
   const server = http.createServer((req, res) => {
+    if (req.url === "/valid.svg" || req.url === "/invalid.svg") {
+      res.setHeader("Content-Type", "image/svg+xml");
+      res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red" ${req.url === "/invalid.svg" ? 'fill="blue"' : ""}/></svg>`);
+      return;
+    }
     if (req.url.startsWith("/result?")) {
       resolveResult(JSON.parse(new URL(req.url, "http://localhost").searchParams.get("data")));
       res.end("ok");
@@ -37,6 +46,9 @@ test("the owned export browser renders WebGL, mask refinement and scaled strokes
       const bgSeg = {masks:new Map()};
       const scratch = document.createElement('canvas');
       const scratchCtx = scratch.getContext('2d',{willReadFrequently:true});
+      const runtime={projectGen:1,mediaAux:new Map()},state={};
+      const getMedia=id=>({id,src:'/'+id+'.svg'}),mediaTimeAt=()=>.5,projectFps=()=>30;
+      ${svgCode}
       ${pixelCode}
       ${strokeCode}
       const gl = document.querySelector('canvas').getContext('webgl');
@@ -69,7 +81,14 @@ test("the owned export browser renders WebGL, mask refinement and scaled strokes
       const gpu = cases.map(p=>{const cv=pixelPassGL({id:'qa'},p,foreground,0,0,4,4,4,4,4);return cv?alphas(cv):null;});
       pixGL.tried=true;pixGL.gl=null;
       const cpu = cases.map(p=>alphas(pixelPass({id:'qa'},p,foreground,0,0,4,4,4,4)));
-      fetch('/result?data=' + encodeURIComponent(JSON.stringify({webgl:!!gl,pixel:[...pixel],strokes,gpu,cpu})));
+      (async()=>{
+        await prepareSvgFrame({id:'valid-clip',mediaId:'valid'},.5);
+        const svgValid=!!runtime.mediaAux.get('valid').img;
+        let svgError;
+        try { await prepareSvgFrame({id:'invalid-clip',mediaId:'invalid'},.5); }
+        catch(error) { svgError=error.message; }
+        fetch('/result?data=' + encodeURIComponent(JSON.stringify({webgl:!!gl,pixel:[...pixel],strokes,gpu,cpu,svgValid,svgError})));
+      })();
     </script>`);
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -99,5 +118,7 @@ test("the owned export browser renders WebGL, mask refinement and scaled strokes
     assert(values, "the hardware shader must run for this native acceptance");
     values.forEach((alpha,x)=>assert(Math.abs(alpha-rendered.cpu[i][x])<=1,"GPU/CPU alpha differs"));
   }
+  assert.equal(rendered.svgValid,true);
+  assert.match(rendered.svgError,/svg raster failed/);
   jobs.report(job.id, { status: "done", result: rendered });
 });

@@ -230,6 +230,12 @@ Reusable assets, visible in the editor's left-panel tabs and never copied:
 
 ## Authoring animated SVGs (the `svg` clip kind)
 
+Forced timeline frames and exports await the actual static or animated SVG
+bitmap. Missing media, invalid XML or failed rasterization refuse the original
+job with `SVG_FRAME_UNAVAILABLE`, the clip and timeline time; a stale preview
+bitmap is not a substitute. Preview remains best effort. Validate generated SVG
+as XML (duplicate attributes are invalid), then inspect an actual rendered frame.
+
 You can create your own vector animations/overlays: write an `.svg` file into
 `library/svg/` (or `media/`), register it as media with `"kind": "svg"`, and
 place it on a video track. The compositor renders it frame-accurately, driven

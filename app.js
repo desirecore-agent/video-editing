@@ -11135,19 +11135,26 @@ function getSvgImage(c, t) {
   return aux.lastImg || null; // may be one frame stale during preview
 }
 async function prepareSvgFrame(c, t) {
-  const aux = runtime.mediaAux.get(c.mediaId);
-  if (!aux) return;
-  if (!aux.svgText) { try { await loadSvgMedia(getMedia(c.mediaId)); } catch { return; } }
-  if (!aux.svgAnimated) return;
+  let aux = runtime.mediaAux.get(c.mediaId);
+  if (!aux?.svgText || (!aux.svgAnimated && !aux.img)) {
+    const media = getMedia(c.mediaId);
+    if (!media) throw new Error("SVG media source unavailable");
+    await loadSvgMedia(media);
+    aux = runtime.mediaAux.get(c.mediaId);
+  }
+  if (!aux?.svgText) throw new Error("SVG source unavailable");
+  if (!aux.svgAnimated) {
+    if (!aux.img || !(aux.img.width || aux.img.naturalWidth) || !(aux.img.height || aux.img.naturalHeight))
+      throw new Error("SVG bitmap unavailable");
+    return;
+  }
   const local = Math.max(0, mediaTimeAt(c, t));
   const q = Math.round(local * projectFps()) / projectFps();
   if (aux.svgFrames.get(q)) return;
-  try {
-    const img = await renderSvgFrame(aux, q);
-    aux.svgFrames.set(q, img);
-    pruneSvgFrames(aux);
-    aux.lastImg = img;
-  } catch { }
+  const img = await renderSvgFrame(aux, q);
+  aux.svgFrames.set(q, img);
+  pruneSvgFrames(aux);
+  aux.lastImg = img;
 }
 
 /* ═════════════ AI BACKGROUND REMOVAL (MediaPipe selfie segmentation) ════════
@@ -17638,7 +17645,10 @@ async function renderAudioMix(t0, t1) {
 async function prepareFrameAssets(t) {
   for (const c of mediaClips()) {
     if (!activeAt(c, t) || !clipRenders(c)) continue;
-    if (c.kind === "svg") await prepareSvgFrame(c, t);
+    if (c.kind === "svg") {
+      try { await prepareSvgFrame(c, t); }
+      catch (error) { throw new Error(`SVG_FRAME_UNAVAILABLE: ${c.id} at ${t.toFixed(3)}s: ${error && error.message || error}`); }
+    }
     if (c.props?.bgRemove && (c.kind === "video" || c.kind === "image")) {
       const el = c.kind === "video" ? getClipEl(c) : runtime.mediaAux.get(c.mediaId)?.img;
       try {
