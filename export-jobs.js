@@ -263,6 +263,10 @@ function createExportJobs(opts) {
       // chrome-headless-shell otherwise forces software rendering and cannot
       // create the WebGL context required by the shared segmentation compositor.
       "--headless=new", "--enable-gpu", `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check",
+      // Windows hardware video decode can lose the GPU context and leave a
+      // ready video element with no drawable pixels. Keep GPU effects, but
+      // decode video in software on that platform (verified without DevTools).
+      ...(process.platform === "win32" ? ["--disable-accelerated-video-decode"] : []),
       "--disable-extensions", "--mute-audio", "--autoplay-policy=no-user-gesture-required",
       "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
       // This is the editor UI's viewport, not the project/export canvas. A

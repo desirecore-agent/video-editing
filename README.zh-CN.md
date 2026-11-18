@@ -10,7 +10,7 @@
 
 导出按钮在快照准入前刷新已保存文档和修订，并以该次实际服务文档准入；刷新中发生人工编辑、切换工程或刷新失败时停止准入并保留草稿。参考分析不为持续纯音推定音乐速度；禁用音轨提取也不表示参考没有音轨。提取保留整条音轨，包括人声，不分离音乐与旁白。强制抠像帧等待新遮罩；模型缺失或推理失败在原取帧/导出作业报告 `BACKGROUND_MASK_UNAVAILABLE`，普通预览仍按尽力加载处理。强制 SVG 帧也须等到真实位图，缺少素材、XML 无效或栅格失败报告 SVG_FRAME_UNAVAILABLE，不静默丢弃图形。抠像/键控媒体支持已有 strokeWidth/strokeColor 参数的人物轮廓描边，默认关闭。可选 bgThreshold/bgSoftness 在描边前清理低置信背景残影，GPU/CPU 使用相同 alpha 曲线，参数带 Schema 并在工程准入校验。后台导出浏览器启用 GPU 渲染，使已准备的 chrome-headless-shell 可创建分割所需 WebGL 上下文；模型/WebGL 初始化失败在原作业回报；仍需核验真实画面以发现图形驱动故障。
 
-后台浏览器采用 800×600 的控件视口，避免本次 Windows 实测的 GPU 上下文丢失。工程及导出画布仍按已保存尺寸渲染，包括真实 4K，不随控件窗口缩小。
+后台浏览器采用 800×600 的控件视口。Windows 冷启动实测复现硬件视频解码导致 GPU 上下文丢失、人物消失，因此该平台关闭硬件视频解码，GPU/WebGL 图形和抠像仍启用。工程及导出画布仍按已保存尺寸渲染，包括真实 4K，不随控件窗口缩小。软件视频解码可能增加 CPU 开销，仍须检查实际输出。
 
 基于 [FableCut](https://github.com/ronak-create/FableCut) 的 DesireCore 受管应用，保留原非线性时间线、JSON 工程、浏览器合成器、音视频工具、REST API 和 `fablecut_*` MCP 工具。配套智能体为独立 [video-editor](https://github.com/desirecore-agent/video-editor) 仓库中的 **视频剪辑师**。
 

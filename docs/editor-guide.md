@@ -2582,9 +2582,13 @@ fonts are not a complete frozen dependency closure.
   tab/headless choices.
 - The owned browser uses an 800×600 viewport for the editor controls. This does
   not change the program canvas, effect sampling or delivery size: a saved
-  2160×3840 project still renders on that 4K canvas. A larger hidden UI surface
-  triggered Windows GPU context loss during portrait-video acceptance. Inspect
-  actual video pixels; a running process or completed job alone is insufficient.
+  2160×3840 project still renders on that 4K canvas. Windows cold-start tests
+  without an attached debugger reproduced GPU context loss and missing video
+  pixels even at this viewport size. On Windows the owned launcher therefore
+  disables hardware video decoding while keeping GPU/WebGL rendering for
+  effects and segmentation. Other platforms retain their decoder choice.
+  Software decode may cost more CPU. Inspect actual video pixels; a running
+  process, ready video element or completed job alone is insufficient.
 - Long edits: `wait:false` returns a job id at once; poll with `{job:"x_…"}`
   and stop one with `{cancel:"x_…"}`. One export runs at a time.
 
