@@ -420,6 +420,8 @@ These are quick looks. For real grading use `props.grade` (see "Color" below).
 | `chromaTolerance` | 26 | 0–100, how much color distance is keyed out |
 | `chromaSoftness` | 12 | 0–100, edge feather + spill suppression |
 | `bgRemove` | false | AI person cut-out (MediaPipe, loaded in the renderer on first use). Forced frames await the model and a fresh inference result; unavailable/failed masks refuse the original frame/export job with `BACKGROUND_MASK_UNAVAILABLE`. Preview remains best effort. The owned headless browser enables GPU rendering; hardware/driver availability is still checked by the actual renderer. |
+| `bgThreshold` | 0 | 0–100 person-confidence cutoff. Zero preserves the original soft mask; positive values make lower-confidence pixels transparent, useful for residual background objects. |
+| `bgSoftness` | 10 | 0–100 confidence interval above the cutoff that smoothly becomes opaque (capped at 100). Zero is a hard edge; ignored when the cutoff is zero. |
 
 Keyed/cutout media also consume the existing `strokeWidth` (default 0, clamped
 to 0–100 destination pixels) and `strokeColor` (default black) props. For example,
@@ -427,6 +429,14 @@ to 0–100 destination pixels) and `strokeColor` (default black) props. For exam
 behind the original person. Preview and export use the same alpha contour;
 it needs no duplicate media player or extra segmentation inference. The Keying /
 Cut-out inspector exposes these controls. Zero disables it.
+
+Mask refinement runs before the silhouette stroke and uses the same smoothstep
+alpha curve in the GPU and CPU paths. For example, `bgThreshold:60,bgSoftness:10`
+rejects confidence below 60% and feathers 60–70%; inspect actual edges instead
+of assuming one value fits every source. The Draft-07 property descriptions,
+defaults and bounds are exported as `background-mask.js`'s `schema`, and invalid
+values refuse project admission. The renderer loads the fixed MediaPipe
+`0.1.1675465747` browser package.
 
 **Audio / time** (video/audio):
 | prop | default | notes |

@@ -6,6 +6,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 "use strict";
 const TextEmphasis = self.FableCutTextEmphasis;
+const BackgroundMask = self.FableCutBackgroundMask;
 
 /* Editor chrome only. Compositor props and film colours never read this palette. */
 function uiColor(key, fallback) {
@@ -82,6 +83,7 @@ const DEFAULT_PROPS = {
   blend: "normal",                             // canvas blend mode
   chromaKey: "", chromaTolerance: 26, chromaSoftness: 12,  // green-screen key
   bgRemove: false,                             // AI person cut-out (MediaPipe)
+  bgThreshold: 0, bgSoftness: 10,              // confidence cleanup (%); zero threshold preserves soft alpha
   shake: 0, shakeSpeed: 8,                     // handheld/impact camera shake (px)
   rgbSplit: 0,                                 // chromatic aberration (px)
   grain: 0,                                    // film grain (%)
@@ -6782,6 +6784,8 @@ function renderInspector(lite) {
       ${slider("chromaTolerance", 0, 100, 1, p.chromaTolerance)}
       ${slider("chromaSoftness", 0, 100, 1, p.chromaSoftness)}
       ${check("AI bg remove", "bgRemove", p.bgRemove)}
+      ${slider("bgThreshold", 0, 100, 1, p.bgThreshold, "%")}
+      ${slider("bgSoftness", 0, 100, 1, p.bgSoftness, "%")}
       ${slider("strokeWidth", 0, 100, 0.5, p.strokeWidth, "px")}
       ${row("Stroke col.", `<input type="color" data-k="strokeColor" value="${p.strokeColor || "#000000"}">`, "", "strokeColor")}
     </div>`;
@@ -11161,7 +11165,7 @@ function loadScript(src) {
 function ensureBgSeg() {
   if (bgSeg.seg || bgSeg.failed) return bgSeg.loading || Promise.resolve();
   if (!bgSeg.loading) {
-    const base = "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation";
+    const base = "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747";
     bgSeg.loading = loadScript(`${base}/selfie_segmentation.js`).then(async () => {
       const seg = new SelfieSegmentation({ locateFile: (f) => `${base}/${f}` });
       await seg.setOptions({ modelSelection: 1 });
@@ -11312,6 +11316,7 @@ uniform int uKey;
 uniform vec2 uKeyC;        // key colour Cb, Cr (0…255)
 uniform vec2 uKeyT;        // tolerance t0, t1 (CbCr distance)
 uniform vec2 uShift;       // temperature (R+, B−), tint (G+), in 0…255 units
+uniform vec2 uMask;        // confidence cutoff and feather interval; zero cutoff preserves alpha
 out vec4 o;
 void main() {
   ivec2 sz = uSize;
@@ -11319,6 +11324,10 @@ void main() {
   vec4 c = texelFetch(uTex, q, 0);
   vec3 rgb = c.rgb * 255.0;
   float a = c.a;
+  if (uMask.x > 0.0) {
+    float high = min(1.0, uMask.x + uMask.y);
+    a = high <= uMask.x ? step(uMask.x, a) : smoothstep(uMask.x, high, a);
+  }
   if (uSplit > 0) {
     rgb.r = texelFetch(uTex, ivec2(min(sz.x - 1, q.x + uSplit), q.y), 0).r * 255.0;
     rgb.b = texelFetch(uTex, ivec2(max(0, q.x - uSplit), q.y), 0).b * 255.0;
@@ -11373,7 +11382,7 @@ function initPixGL() {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);   // straight alpha, as getImageData returns it
     const loc = {};
-    for (const n of ["uTex", "uSize", "uSplit", "uKey", "uKeyC", "uKeyT", "uShift"]) loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ["uTex", "uSize", "uSplit", "uKey", "uKeyC", "uKeyT", "uShift", "uMask"]) loc[n] = gl.getUniformLocation(prog, n);
     gl.uniform1i(loc.uTex, 0);
     cv.addEventListener("webglcontextlost", (e) => { e.preventDefault(); pixGL.gl = null; });
     cv.addEventListener("webglcontextrestored", () => { pixGL.tried = false; });
@@ -11404,8 +11413,9 @@ function pixelPassGL(c, p, src, sx, sy, sw, sh, w, h, dw) {
     g.globalCompositeOperation = "source-over";
   }
   const doKey = !!p.chromaKey, temp = +p.temperature || 0, tint = +p.tint || 0;
+  const maskSettings = BackgroundMask.settings(mask ? p : {});
   const split = Math.round(clamp(+p.rgbSplit || 0, 0, 60) * (w / Math.max(1, dw)));
-  const run = doKey || temp || tint || split > 0;
+  const run = doKey || temp || tint || split > 0 || maskSettings.threshold > 0;
   let out = pixGL.outs.get(c.id);
   if (!out) {
     if (pixGL.outs.size >= 32) pixGL.outs.delete(pixGL.outs.keys().next().value);
@@ -11432,6 +11442,7 @@ function pixelPassGL(c, p, src, sx, sy, sw, sh, w, h, dw) {
       gl.uniform2f(loc.uKeyT, t0, t0 + Math.max(1, clamp(+p.chromaSoftness || 0, 0, 100) * 1.2));
     }
     gl.uniform2f(loc.uShift, temp * 0.6, tint * 0.5);
+    gl.uniform2f(loc.uMask, maskSettings.threshold, maskSettings.softness);
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     o.drawImage(cv, 0, cv.height - h, w, h, 0, 0, w, h);   // the viewport is the buffer's bottom-left
@@ -11459,8 +11470,9 @@ function pixelPass(c, p, src, sx, sy, sw, sh, dw, dh) {
     scratchCtx.globalCompositeOperation = "source-over";
   }
   const doKey = !!p.chromaKey, temp = +p.temperature || 0, tint = +p.tint || 0;
+  const maskSettings = BackgroundMask.settings(mask ? p : {});
   const split = Math.round(clamp(+p.rgbSplit || 0, 0, 60) * (w / Math.max(1, dw)));
-  if (doKey || temp || tint || split > 0) {
+  if (doKey || temp || tint || split > 0 || maskSettings.threshold > 0) {
     const img = scratchCtx.getImageData(0, 0, w, h);
     const d = img.data;
     if (split > 0) { // chromatic aberration: shift R left→, B →right
@@ -11485,6 +11497,7 @@ function pixelPass(c, p, src, sx, sy, sw, sh, dw, dh) {
     const tShift = temp * 0.6, gShift = tint * 0.5;
     for (let i = 0; i < d.length; i += 4) {
       let r = d[i], g = d[i + 1], b = d[i + 2];
+      if (maskSettings.threshold > 0) d[i + 3] = Math.round(255 * BackgroundMask.alpha(d[i + 3] / 255, maskSettings));
       if (doKey) {
         const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
         const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;

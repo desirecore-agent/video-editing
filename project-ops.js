@@ -29,10 +29,11 @@
   const api = factory(dep("./audio-fx", "FableCutFx"), dep("./edit-ops", "FableCutEdit"), dep("./color", "FableCutColor"),
     dep("./mask", "FableCutMask"), dep("./tracker", "FableCutTracker"), dep("./motion", "FableCutMotion"),
     dep("./comp", "FableCutComp"), dep("./templates", "FableCutTemplates"), dep("./media-lib", "FableCutMedia"),
-    dep("./delivery", "FableCutDelivery"), dep("./sequences", "FableCutSeq"), dep("./text-emphasis", "FableCutTextEmphasis"));
+    dep("./delivery", "FableCutDelivery"), dep("./sequences", "FableCutSeq"), dep("./text-emphasis", "FableCutTextEmphasis"),
+    dep("./background-mask", "FableCutBackgroundMask"));
   if (node) module.exports = api;
   else root.FableCutProjectOps = api;
-})(typeof self !== "undefined" ? self : this, function (FX, EditOps, Color, Mask, Tracker, Motion, CompLib, Templates, MediaLib, Delivery, SeqLib, TextEmphasis) {
+})(typeof self !== "undefined" ? self : this, function (FX, EditOps, Color, Mask, Tracker, Motion, CompLib, Templates, MediaLib, Delivery, SeqLib, TextEmphasis, BackgroundMask) {
   "use strict";
 
   const DEFAULT_TRACKS = EditOps.DEFAULT_TRACKS;
@@ -106,7 +107,7 @@
     brightness: 100, contrast: 100, saturation: 100, hue: 0, temperature: 0,
     tint: 0, blur: 0, grayscale: 0, sepia: 0, invert: 0, vignette: 0,
     shake: 0, shakeSpeed: 8, rgbSplit: 0, grain: 0,
-    chromaKey: "", chromaTolerance: 26, chromaSoftness: 12, bgRemove: false,
+    chromaKey: "", chromaTolerance: 26, chromaSoftness: 12, bgRemove: false, bgThreshold: 0, bgSoftness: 10,
     text: "Title", fontSize: 72, color: "#ffffff", color2: "", font: "Segoe UI",
     bold: true, weight: 0, italic: false, uppercase: false, align: "center",
     letterSpacing: 0, lineHeight: 1.2, textShadow: 12, glow: 0, glowColor: "",
@@ -1345,6 +1346,7 @@
       if (c.kind === "comp" && where && CompLib.wouldCycle(doc, where, c.compId))
         throw new Error(`comp ${where}: clip ${c.id} uses comp ${c.compId}, which is missing or would contain itself`);
       if (c.props?.emphasis !== undefined) TextEmphasis.validate(c.props.emphasis);
+      if (c.props) BackgroundMask.settings(c.props);
       if (c.kind === "shape" && c.props && c.props.shapes != null) {
         let n;
         try { n = Motion.normalizeShapes(c.props.shapes, true); } catch (err) { throw new Error(`${at}clip ${c.id}: props.${err.message}`); }

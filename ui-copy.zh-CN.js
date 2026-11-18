@@ -582,6 +582,8 @@
   "Flip V": "垂直翻转",
   "Key color": "抠像颜色",
   "AI bg remove": "AI 去除背景",
+  "BgThreshold": "抠像置信阈值",
+  "BgSoftness": "抠像置信柔边",
   "Channel": "声道",
   "Gain": "增益",
   "Normalize": "响度归一化",
