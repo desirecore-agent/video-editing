@@ -223,13 +223,13 @@ const TOOLS = [
   },
   {
     name: "fablecut_analyze_reference",
-    description: "Analyze a reference video into an EDIT BLUEPRINT so a similar edit can be rebuilt with different footage over the same music. Returns: shot boundaries (cuts) with per-shot audio energy, music beats + BPM, a loudness curve, the detected drop, and extracts the reference's music track into media/ (registered in the project, ready to place on A1). Remake recipe: copy the reference's width/height/fps to the project, write `beats` into project `markers`, lay the extracted music on A1, then place one clip per blueprint `shot` at the same start/duration — pick calm footage for low-energy shots and action for high-energy ones, and make the biggest moment land on `drop`. See the 'Remake a reference video' section of fablecut_docs.",
+    description: "Analyze a reference into detected cuts, per-shot audio energy, beats/BPM, a loudness curve and an energy rise. Speech can also produce detected beats; these measurements do not reconstruct visual style or graphic events. Optional extraction registers the ENTIRE audio track, including narration and effects, without source separation. Use registerMusic:false when extraction is unnecessary; inspect the track and authorization before reusing it. Match speech and actual frames for talking-head remakes, and preserve the user's delivery preferences. See the 'Remake a reference video' section of fablecut_docs.",
     inputSchema: {
       type: "object",
       properties: {
         path: { type: "string", description: "The reference video: an absolute file path (copied into media/ automatically) or an existing '/media/…' src" },
         threshold: { type: "number", description: "Scene-cut sensitivity 0–1 (default: adaptive 0.30→0.20→0.12). Lower it if obvious cuts are missed, raise it if too many false cuts." },
-        registerMusic: { type: "boolean", description: "Extract the reference's music and register it as project media (default true)" },
+        registerMusic: { type: "boolean", description: "Extract and register the entire reference audio track, including speech and effects (default true). Does not separate music from voice. Set false to avoid extraction." },
       },
       required: ["path"],
     },
@@ -1904,9 +1904,9 @@ async function callTool(name, args, attempt = 0) {
         musicDir: MEDIA_DIR,
         srcUrl: "/media/" + encodeURIComponent(path.basename(file)),
       });
-      let musicNote = !bp.hasAudio ? "Reference has no audio track — no music extracted."
-        : args.registerMusic === false ? "Audio track detected; music extraction was not requested."
-        : "Audio track detected, but music extraction did not produce an artifact.";
+      let musicNote = !bp.hasAudio ? "Reference has no audio track — no audio extracted."
+        : args.registerMusic === false ? "Audio track detected; audio extraction was not requested."
+        : "Audio track detected, but extraction did not produce an artifact.";
       if (bp.music) {
         bp.music.src = "/media/" + encodeURIComponent(bp.music.name);
         // merge-safe append, same protocol as fablecut_import_media
@@ -1921,7 +1921,7 @@ async function callTool(name, args, attempt = 0) {
         await writeProject(proj);
         if (wasCurrent) lastReadRevision = proj.revision;
         bp.music.mediaId = entry.id;
-        musicNote = `Music extracted and registered as media "${entry.id}" — place it on A1 (in:0, duration:${bp.duration}).`;
+        musicNote = `Entire reference audio extracted and registered as media "${entry.id}". It includes any narration, music and effects; no voice/music separation was performed. Inspect its contents and authorized use before placing it on the timeline.`;
       }
       const dir = ANALYSIS_DIR;
       fs.mkdirSync(dir, { recursive: true });
@@ -1929,7 +1929,7 @@ async function callTool(name, args, attempt = 0) {
         JSON.stringify(bp, null, 2));
       return JSON.stringify(bp, null, 2) + "\n\n" + [
         musicNote,
-        `REMAKE RECIPE: 1) set project width/height/fps to ${bp.width}x${bp.height} @ ${bp.fps} — 2) use detected beats[] only when present — 3) ${bp.music ? "extracted music on A1" : "no music artifact was extracted"} — 4) one clip per shots[] entry at the same start/duration on V1 (hard cuts; footage energy is relative loudness) — 5) ${bp.drop == null ? "no drop detected" : `biggest moment on drop (${bp.drop}s)`}${bp.bpm ? ` — tempo ${bp.bpm} BPM` : " — no musical tempo established"}. Full recipe: fablecut_docs → "Remake a reference video".`,
+        `REMAKE NOTES: detected cuts and audio energy do not describe graphic events or visual style. ${bp.bpm ? `Periodic peaks were detected near ${bp.bpm} BPM; speech can produce them too.` : "No musical tempo established."} For talking-head references, compare actual speech and frames. Preserve the user's output preferences. Methods: fablecut_docs → "Remake a reference video".`,
       ].join("\n");
     }
     case "fablecut_import_media": {

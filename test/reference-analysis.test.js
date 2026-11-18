@@ -24,7 +24,7 @@ test("MCP reference analysis distinguishes an audio track from disabled music ex
   const bp = JSON.parse(reply.text.slice(0, reply.text.indexOf("\n\n")));
   assert.equal(bp.hasAudio, true); assert.equal(bp.music, null);
   assert.equal(bp.bpm, null); assert.deepEqual(bp.beats, []);
-  assert.match(reply.text, /music extraction was not requested/);
+  assert.match(reply.text, /audio extraction was not requested/);
   assert.doesNotMatch(reply.text, /has no audio track/);
   assert.doesNotMatch(reply.text, /3\) extracted music on A1/);
   assert.doesNotMatch(reply.text, /drop \(nulls\)|tempo \d/);

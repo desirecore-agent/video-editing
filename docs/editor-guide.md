@@ -419,7 +419,7 @@ These are quick looks. For real grading use `props.grade` (see "Color" below).
 | `chromaKey` | "" | hex key color, e.g. `"#00ff00"` for green screen ("" = off) |
 | `chromaTolerance` | 26 | 0–100, how much color distance is keyed out |
 | `chromaSoftness` | 12 | 0–100, edge feather + spill suppression |
-| `bgRemove` | false | AI person cut-out (MediaPipe, loads from CDN on first use; needs internet once) |
+| `bgRemove` | false | AI person cut-out (MediaPipe, loaded in the renderer on first use). Forced frames await the model and a fresh inference result; unavailable/failed masks refuse the original frame/export job with `BACKGROUND_MASK_UNAVAILABLE`. Preview remains best effort. |
 
 **Audio / time** (video/audio):
 | prop | default | notes |
@@ -2115,6 +2115,10 @@ tab, else a headless browser.
 
 Steady tones and sub-threshold energy ripple do not establish beats or tempo: analysis returns no beats and `bpm:null` while retaining loudness measurements. With `registerMusic:false`, an existing audio track is reported as present but not extracted; `music:null` does not mean silence.
 
+Extraction copies the **entire audio track**, including speech and sound effects; it does not separate music from narration. The MCP switch is `registerMusic:false`; REST/`analyze()` use `music:false`. Inspect the content and its authorized use before placing it on the timeline. Speech can produce periodic energy peaks, so a non-null BPM does not prove music is present.
+
+For a talking-head explainer, align the reference and source by speech, and inspect actual frames for chapter labels, diagrams, captions, framing and cutout edges. Shot detection may miss graphic events within a card. The measurements do not recreate that packaging or override the user's output preferences.
+
 Given a reference edit (a reel/montage the user likes), FableCut can analyze it
 and hand back an **edit blueprint** so the same idea can be rebuilt with
 different footage over the same music.
@@ -2144,10 +2148,10 @@ different footage over the same music.
 `threshold` tunes cut sensitivity (default adapts 0.30→0.20→0.12): lower it if
 obvious cuts were missed, raise it if motion is being misread as cuts.
 
-**Rebuild recipe** — the analysis is deterministic; the creative mapping is yours:
-1. `setProject`: copy the reference's `width/height/fps`; write `beats`
+**Optional music-led montage recipe** — choose it when it fits the goal; the creative mapping is yours:
+1. `setProject`: choose canvas/delivery settings from the user's goal and source detail; write useful `beats`
    (or the `cuts`) into `markers` so the user sees the grid.
-2. Music: the extracted track on A1, `in:0, duration:<ref duration>`.
+2. Music: only a confirmed, authorized music track, with its intended start and duration. Do not use reference narration as a music bed.
 3. Structure: one clip per `shots[]` entry on V1 at the same `start`/`duration`
    (hard cuts by default — that's what shot detection saw). Pick source footage
    whose motion matches each shot's `energy` (calm ≤40, action ≥70), and choose
@@ -2234,8 +2238,8 @@ obvious cuts were missed, raise it if motion is being misread as cuts.
   noise-reduced FLAC of the whole file into `./media/` (reused if it exists) and returns
   `{src, name, duration, channels}`. Does not touch `project.json` (see "Audio mix").
 - `POST /api/analyze` — body `{src:"/media/ref.mp4", threshold?, music?}`: analyze a
-  reference video into an edit blueprint (see "Remake a reference video"); extracts
-  its music into ./media. `GET /api/analyze?src=…` returns the cached blueprint.
+  reference video into an edit blueprint (see "Remake a reference video"); optionally extracts
+  its entire audio track into ./media, without source separation. `GET /api/analyze?src=…` returns the cached blueprint.
 - `GET  /api/frame?src=/media/x.mp4&t=3.2` — one JPEG still of a source clip, the
   "eyes" to go with `/api/analyze`'s ears (see "Look at the footage"). Optional
   `w` (pixel width, default 768) and `q` (ffmpeg `-q:v` 1–31, default 4).

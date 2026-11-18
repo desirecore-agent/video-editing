@@ -11148,7 +11148,7 @@ async function prepareSvgFrame(c, t) {
    Loaded lazily from CDN the first time a clip sets props.bgRemove. Produces a
    per-clip person mask consumed by the pixel pipeline below. Degrades politely
    when offline. */
-const bgSeg = { seg: null, loading: null, failed: false, queue: Promise.resolve(), masks: new Map() };
+const bgSeg = { seg: null, loading: null, failed: false, error: null, resultVersion: 0, queue: Promise.resolve(), masks: new Map() };
 function loadScript(src) {
   return new Promise((res, rej) => {
     const s = document.createElement("script");
@@ -11160,19 +11160,21 @@ function ensureBgSeg() {
   if (bgSeg.seg || bgSeg.failed) return bgSeg.loading || Promise.resolve();
   if (!bgSeg.loading) {
     const base = "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation";
-    bgSeg.loading = loadScript(`${base}/selfie_segmentation.js`).then(() => {
+    bgSeg.loading = loadScript(`${base}/selfie_segmentation.js`).then(async () => {
       const seg = new SelfieSegmentation({ locateFile: (f) => `${base}/${f}` });
-      seg.setOptions({ modelSelection: 1 });
+      await seg.setOptions({ modelSelection: 1 });
       seg.onResults((r) => {
         if (!bgSeg.currentClip) return;
         let cv = bgSeg.masks.get(bgSeg.currentClip);
         if (!cv) { cv = document.createElement("canvas"); bgSeg.masks.set(bgSeg.currentClip, cv); }
         cv.width = r.segmentationMask.width; cv.height = r.segmentationMask.height;
         cv.getContext("2d").drawImage(r.segmentationMask, 0, 0);
+        bgSeg.resultVersion++;
       });
       bgSeg.seg = seg;
-    }).catch(() => {
+    }).catch((error) => {
       bgSeg.failed = true;
+      bgSeg.error = error;
       toast("Background removal unavailable — couldn't load MediaPipe (offline?). Using chroma key still works.");
     });
   }
@@ -11182,17 +11184,26 @@ function ensureBgSeg() {
    Preview calls are dropped while one is in flight (masks lag a frame at most);
    the exporter passes force=true and awaits the exact mask. */
 bgSeg.pending = 0;
-function requestMask(clipId, el, force = false) {
-  ensureBgSeg();
-  if (!bgSeg.seg) return bgSeg.loading || Promise.resolve();
+async function requestMask(clipId, el, force = false) {
+  const loading = ensureBgSeg();
+  if (force) await loading;
+  if (!bgSeg.seg) {
+    if (force) throw bgSeg.error || new Error("segmentation runtime unavailable");
+    return loading;
+  }
   if (!force && bgSeg.pending > 0) return Promise.resolve();
   bgSeg.pending++;
-  bgSeg.queue = bgSeg.queue.then(async () => {
-    if ((el.videoWidth || el.naturalWidth || 0) === 0) return;
+  bgSeg.queue = bgSeg.queue.catch(() => {}).then(async () => {
+    if ((el.videoWidth || el.naturalWidth || 0) === 0) {
+      if (force) throw new Error("segmentation source unavailable");
+      return;
+    }
     bgSeg.currentClip = clipId;
-    try { await bgSeg.seg.send({ image: el }); } catch { }
+    const version = bgSeg.resultVersion;
+    await bgSeg.seg.send({ image: el });
+    if (force && bgSeg.resultVersion === version) throw new Error("mask result unavailable");
   }).finally(() => { bgSeg.pending--; });
-  return bgSeg.queue;
+  return force ? bgSeg.queue : bgSeg.queue.catch(() => {});
 }
 
 /* ═══════════ PIXEL PIPELINE (chroma key · temperature · tint · mask) ═══════
@@ -13000,8 +13011,8 @@ function drawClipPicture(c, W, H, t, layered) {
       ctx2d.roundRect(-dw / 2, -dh / 2, dw, dh, Math.min(+p.cornerRadius, dw / 2, dh / 2));
       ctx2d.clip();
     }
-    if (p.bgRemove && c.kind === "video") requestMask(c.id, src); // refresh person mask
-    if (p.bgRemove && c.kind === "image" && !bgSeg.masks.get(c.id)) requestMask(c.id, src);
+    if (!state.rendering && p.bgRemove && c.kind === "video") requestMask(c.id, src); // preview only; forced frames already prepared
+    if (!state.rendering && p.bgRemove && c.kind === "image" && !bgSeg.masks.get(c.id)) requestMask(c.id, src);
     ctx2d.filter = buildFilter(p);
     const grade = activeGrade(c, p, t), matte = gradeMatte(c);
     let graded = null;
@@ -17588,7 +17599,12 @@ async function prepareFrameAssets(t) {
     if (c.kind === "svg") await prepareSvgFrame(c, t);
     if (c.props?.bgRemove && (c.kind === "video" || c.kind === "image")) {
       const el = c.kind === "video" ? getClipEl(c) : runtime.mediaAux.get(c.mediaId)?.img;
-      if (el) { try { await requestMask(c.id, el, true); } catch { } }
+      try {
+        if (!el) throw new Error("segmentation source unavailable");
+        await requestMask(c.id, el, true);
+      } catch (error) {
+        throw new Error(`BACKGROUND_MASK_UNAVAILABLE: ${c.id} at ${t.toFixed(3)}s: ${error && error.message || error}`);
+      }
     }
   }
 }
