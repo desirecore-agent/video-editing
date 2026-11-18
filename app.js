@@ -2995,12 +2995,12 @@ function mediaPlaySrc(m) {
   const p = proxyOf(m);
   return p ? p.src : m.src;
 }
-/** Switch every player to the original files and wait until they can draw (export, still renders). */
+/** Switch existing players to originals; future clips open lazily during output. */
 async function useOriginalPlayers() {
   runtime.forceOriginals = true;
   const waits = [];
   for (const c of mediaClips()) {
-    if (c.kind !== "video" || !clipRenders(c)) continue;
+    if (c.kind !== "video" || !clipRenders(c) || !runtime.clipEls.has(c.id)) continue;
     const el = getClipEl(c);
     if (el) waits.push(waitMediaEl(el));
   }
@@ -16759,20 +16759,29 @@ function snapshotExportRgba() {
   } catch (e) { throw canvasTaintError(e); }
 }
 const JPEG_WORKER_SRC = `"use strict";
-self.onmessage = async (e) => {
-  const { id, bmp, quality } = e.data;
-  try {
-    const c = new OffscreenCanvas(bmp.width, bmp.height);
-    const ctx = c.getContext("2d", { alpha: false });
-    ctx.drawImage(bmp, 0, 0);
-    bmp.close();
-    const blob = await c.convertToBlob({ type: "image/jpeg", quality: quality || 0.92 });
-    const buf = await blob.arrayBuffer();
-    self.postMessage({ id, buf }, [buf]);
-  } catch (err) {
-    try { bmp.close(); } catch {}
-    self.postMessage({ id, error: String(err && err.message || err) });
-  }
+let canvas = null;
+let pending = Promise.resolve();
+// Keep one backing store per worker and finish its readback before drawing another frame.
+self.onmessage = (e) => {
+  pending = pending.then(async () => {
+    const { id, bmp, quality } = e.data;
+    try {
+      if (!canvas) canvas = new OffscreenCanvas(bmp.width, bmp.height);
+      if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
+        canvas.width = bmp.width;
+        canvas.height = bmp.height;
+      }
+      const ctx = canvas.getContext("2d", { alpha: false });
+      ctx.drawImage(bmp, 0, 0);
+      bmp.close();
+      const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: quality || 0.92 });
+      const buf = await blob.arrayBuffer();
+      self.postMessage({ id, buf }, [buf]);
+    } catch (err) {
+      try { bmp.close(); } catch {}
+      self.postMessage({ id, error: String(err && err.message || err) });
+    }
+  });
 };
 `;
 function createJpegWorkers(n) {
@@ -16826,10 +16835,16 @@ function jpegFromBitmap(bmp, quality) {
   return new Promise((res, rej) => {
     try {
       c.toBlob((b) => {
+        c.width = 0;
+        c.height = 0;
         if (!b) return rej(new Error("frame encode failed"));
         b.arrayBuffer().then(res, rej);
       }, "image/jpeg", quality);
-    } catch (e) { rej(canvasTaintError(e)); }
+    } catch (e) {
+      c.width = 0;
+      c.height = 0;
+      rej(canvasTaintError(e));
+    }
   });
 }
 /** Preview may already be tainted (cross-origin PiP, old data: SVG). Resetting
@@ -17398,9 +17413,14 @@ async function seekVideosTo(t, { queueBusy } = {}) {
     if (c.kind !== "video") continue;
     if (!clipRenders(c)) continue;
     if (decoded.has(c.id)) continue;
-    const el = getClipEl(c);
-    if (!el) { if (activeAt(c, t)) assertExportVideoFrame(c, t); continue; }
-    if (!activeAt(c, t)) {
+    const active = activeAt(c, t);
+    const el = active ? getClipEl(c) : runtime.clipEls.get(c.id);
+    if (!el) { if (active) assertExportVideoFrame(c, t); continue; }
+    if (!active) {
+      if (runtime.forceOriginals && clipEnd(c) <= t) {
+        releaseClipEl(c.id);
+        continue;
+      }
       if (!el.paused) el.pause();
       if (el._fcPrevMuted != null) {
         try { el.muted = el._fcPrevMuted; } catch { }
