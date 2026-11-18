@@ -18,6 +18,8 @@ The export button refreshes the saved document and revision before snapshot admi
 
 The owned background window uses an 800×600 viewport for its controls. On Windows it disables hardware video decoding after cold-start tests reproduced GPU context loss and missing subjects with hardware decoding; GPU/WebGL effects remain enabled. Project and export canvases retain their saved dimensions, including real 4K rendering. Software video decoding may cost more CPU; inspect the actual output.
 
+Export seeking registers presented-frame callbacks before the seek and reuses verified source-frame intervals across output rates. Clock-only fallback does not teach a source frame rate, avoiding repeated seeks past the correct picture.
+
 Use Node 22 or newer from DesireCore's managed runtime PATH. Native FFmpeg, ffprobe and a headless browser are prepared explicitly in the application's data directory; see [the runtime and backup contract](desirecore/RUNTIME.md). No developer machine paths or native binaries are bundled.
 
 ```sh

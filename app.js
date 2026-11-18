@@ -17122,29 +17122,59 @@ function notePresented(el, mediaTime) {
 function presentedClose(el, mt, eps) {
   return el._fcPresentedTime != null && Math.abs(el._fcPresentedTime - mt) <= eps;
 }
-function waitForPresentedFrame(el, timeoutMs = 80) {
+/** Only real presented samples establish the source frame's half-open interval. */
+function sourceFrameContains(el, mt, shown) {
+  const dur = el._fcFrameDur;
+  return shown != null && el._fcFrameSeen >= 3 && dur > 0 &&
+    mt >= shown - 1e-4 && mt < shown + dur - 1e-4;
+}
+function presentedContains(el, mt) {
+  return el._fcPresentedTime === el._fcLastShown && sourceFrameContains(el, mt, el._fcPresentedTime);
+}
+function waitForPresentedFrame(el, timeoutMs = 80, targetTime = null, afterSeek = null) {
   return new Promise((res, rej) => {
     if (typeof el.requestVideoFrameCallback !== "function") {
-      notePresented(el, el.currentTime);
+      el._fcPresentedTime = el.currentTime;
       res();
       return;
     }
-    let done = false;
-    const finishOk = (meta) => {
+    let done = false, tm, callbackId;
+    const previousShown = el._fcLastShown;
+    const finishOk = (meta, knownSameFrame = false) => {
       const mediaTime = meta?.mediaTime;
       if (!Number.isFinite(mediaTime)) return;
       if (done) return;
+      // A callback already queued before the seek can describe the old picture.
+      // Accept the actual source frame containing the requested media time.
+      const stale = !knownSameFrame && previousShown != null && Math.abs(mediaTime - previousShown) < 1e-6;
+      const duration = el._fcFrameSeen >= 3 ? el._fcFrameDur : 1 / 20;
+      if (targetTime != null && (stale || !(mediaTime <= targetTime + 1e-4 &&
+          targetTime < mediaTime + duration - 1e-4))) {
+        callbackId = el.requestVideoFrameCallback((_n, next) => finishOk(next));
+        return;
+      }
       done = true;
       clearTimeout(tm);
+      if (callbackId != null && typeof el.cancelVideoFrameCallback === "function")
+        el.cancelVideoFrameCallback(callbackId);
       notePresented(el, mediaTime);
       res();
     };
-    const tm = setTimeout(() => {
+    const startTimeout = () => {
       if (done) return;
-      done = true;
-      rej(new Error("presented frame timeout"));
-    }, timeoutMs);
-    el.requestVideoFrameCallback((_n, meta) => finishOk(meta));
+      tm = setTimeout(() => {
+        if (done) return;
+        done = true;
+        if (callbackId != null && typeof el.cancelVideoFrameCallback === "function")
+          el.cancelVideoFrameCallback(callbackId);
+        rej(new Error("presented frame timeout"));
+      }, timeoutMs);
+    };
+    if (afterSeek) afterSeek.then(shown => {
+      if (Number.isFinite(shown)) finishOk({ mediaTime: shown }, true);
+      else startTimeout();
+    }); else startTimeout();
+    callbackId = el.requestVideoFrameCallback((_n, meta) => finishOk(meta));
   });
 }
 function assignVideoTime(el, mt, accurate) {
@@ -17157,17 +17187,16 @@ function assignVideoTime(el, mt, accurate) {
 /** A finished seek to mt still shows the frame presented at `shown`: mt lies inside that one
  *  source frame, by the frame duration learned from presented frames (unknown → no). */
 function sameSourceFrame(el, mt, shown) {
-  const dur = el._fcFrameDur;
-  if (shown == null || !(el._fcFrameSeen >= 3) || !(dur > 0)) return false;
-  return el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002 &&
-    mt >= shown - 1e-4 && mt < shown + dur - 1e-4;
+  return shown === el._fcLastShown && el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002 &&
+    sourceFrameContains(el, mt, shown);
 }
 function hardSeekVideo(el, mt, attempt = 0, shown = el._fcPresentedTime) {
   const hasRvfc = typeof el.requestVideoFrameCallback === "function";
   const maxAttempts = 3;
   return new Promise((res, rej) => {
+    let presentation, seekCompleted;
     // a busy frame (grades, masks, blur) can present late: each retry waits longer
-    const after = () => waitForPresentedFrame(el, [80, 250, 600][attempt] || 600)
+    const after = () => (presentation || waitForPresentedFrame(el, [80, 250, 600][attempt] || 600))
       .then(res)
       .catch((err) => {
         // Slow motion lands several output frames on one source frame: seeking within the
@@ -17178,7 +17207,12 @@ function hardSeekVideo(el, mt, attempt = 0, shown = el._fcPresentedTime) {
         if (attempt + 1 < maxAttempts) { hardSeekVideo(el, mt, attempt + 1, shown).then(res, rej); return; }
         // Last try: the seek finished on mt with the frame's data loaded, so the element holds
         // that frame even though no callback reported it. Better than failing the whole export.
-        if (el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002) { notePresented(el, mt); res(); return; }
+        if (el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002) {
+          // This is a clock fallback, not an observed source-frame timestamp.
+          // Do not train the source frame-duration estimate on output clocks.
+          el._fcPresentedTime = mt;
+          res(); return;
+        }
         rej(err);
       });
     if (presentedClose(el, mt, 0.002) && el.readyState >= 2) {
@@ -17188,7 +17222,7 @@ function hardSeekVideo(el, mt, attempt = 0, shown = el._fcPresentedTime) {
     // No rvfc — paused on the right clock is the only signal we have.
     if (!hasRvfc && el._fcPresentedTime == null && el.paused && el.readyState >= 2
         && Math.abs(el.currentTime - mt) < 1e-4) {
-      notePresented(el, el.currentTime);
+      el._fcPresentedTime = el.currentTime;
       res();
       return;
     }
@@ -17196,10 +17230,18 @@ function hardSeekVideo(el, mt, attempt = 0, shown = el._fcPresentedTime) {
     const done = () => {
       clearTimeout(tm);
       el.removeEventListener("seeked", done);
+      seekCompleted?.(sameSourceFrame(el, mt, shown) ? shown : undefined);
       after();
     };
     const tm = setTimeout(done, 1500);
     el.addEventListener("seeked", done);
+    // Register before assigning currentTime: Chromium can present the sought
+    // frame before dispatching seeked. Count its wait budget only after seeked.
+    if (hasRvfc) {
+      const seekReady = new Promise(resolve => { seekCompleted = resolve; });
+      presentation = waitForPresentedFrame(el, [80, 250, 600][attempt] || 600, mt, seekReady);
+      presentation.catch(() => {}); // after() owns the result, including timeout
+    }
     try {
       if (!el.paused) el.pause();
       // Same currentTime does not fire seeked — nudge so the decoder must present mt.
@@ -17236,19 +17278,20 @@ function playAdvanceVideo(el, mt, eps, rate, { keepPlaying } = {}) {
       if (settled) return;
       if (!Number.isFinite(presented)) return;
       settled = true;
-      notePresented(el, presented);
+      if (typeof el.requestVideoFrameCallback === "function") notePresented(el, presented);
+      else el._fcPresentedTime = presented;
       cleanup();
       // Presented picture is authoritative — currentTime often runs ahead of
       // the displayed frame. Accept when within [mt-slop, mt]; hard-seek when
       // play-ahead overshoots past mt or the picture is still short.
-      const pictureShort = presented < mt - slop * 2;
+      const pictureShort = !sourceFrameContains(el, mt, presented) && presented < mt - slop * 2;
       const pictureOvershoot = presented > mt;
       if (pictureOvershoot
         || (pictureShort && Math.abs(el.currentTime - mt) > Math.max(eps * 2, 0.008)))
         hardSeekVideo(el, mt).then(res, rej);
       else res();
     };
-    if (presentedClose(el, mt, slop) && el.readyState >= 2) {
+    if ((presentedClose(el, mt, slop) || presentedContains(el, mt)) && el.readyState >= 2 && !el.seeking) {
       if (!keepPlaying) { try { el.pause(); } catch { } }
       res();
       return;
@@ -17263,7 +17306,7 @@ function playAdvanceVideo(el, mt, eps, rate, { keepPlaying } = {}) {
     const check = (mediaTime) => {
       // Presented frame only — currentTime finishes half a frame early and
       // canvas still holds the previous picture (duplicate Fast frames).
-      if (mediaTime != null && mediaTime >= mt - slop) finish(mediaTime);
+      if (mediaTime != null && (mediaTime >= mt - slop || sourceFrameContains(el, mt, mediaTime))) finish(mediaTime);
     };
     try { el.playbackRate = clamp(rate, 0.1, 8); } catch { }
     // muted → autoplay-friendly after async export setup (user-gesture may be gone)
@@ -17513,7 +17556,9 @@ async function seekVideosTo(t, { queueBusy } = {}) {
     // Skip only when the *presented* picture is already the target. currentTime
     // within ½ frame is not enough — Fast export used to snapshot the previous
     // decoded frame twice while the clock had already ticked.
-    if (el.readyState >= 2 && presentedClose(el, mt, slop)) {
+    if (el.readyState >= 2 && !el.seeking &&
+        (presentedClose(el, mt, slop) || presentedContains(el, mt))) {
+      if (!keepPlaying && !el.paused) el.pause();
       if (keepPlaying && !el.paused) {
         try { el.playbackRate = sp; } catch { }
       }

@@ -2589,6 +2589,11 @@ fonts are not a complete frozen dependency closure.
   effects and segmentation. Other platforms retain their decoder choice.
   Software decode may cost more CPU. Inspect actual video pixels; a running
   process, ready video element or completed job alone is insufficient.
+- Video export observes frame callbacks before starting an accurate seek, so a
+  frame presented before `seeked` is not missed. Once real samples establish a
+  source-frame interval, several output times inside it reuse that picture.
+  Clock-only fallback does not train that interval. This avoids repeatedly
+  seeking past and back to the correct frame when source and output rates differ.
 - Long edits: `wait:false` returns a job id at once; poll with `{job:"x_…"}`
   and stop one with `{cancel:"x_…"}`. One export runs at a time.
 

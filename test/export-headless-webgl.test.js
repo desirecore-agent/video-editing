@@ -37,7 +37,14 @@ test("the owned browser renders portrait video at 4K and validates effects/SVG",
   const server = http.createServer((req, res) => {
     if (req.url === "/portrait.mp4") {
       res.setHeader("Content-Type", "video/mp4");
-      res.end(portraitVideo);
+      res.setHeader("Accept-Ranges", "bytes");
+      const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || "");
+      const start = range ? Number(range[1]) : 0;
+      const end = range && range[2] ? Math.min(Number(range[2]), portraitVideo.length - 1) : portraitVideo.length - 1;
+      if (start > end || start >= portraitVideo.length) { res.writeHead(416); res.end(); return; }
+      if (range) res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${portraitVideo.length}`, "Content-Length": end - start + 1 });
+      else res.setHeader("Content-Length", portraitVideo.length);
+      res.end(portraitVideo.subarray(start, end + 1));
       return;
     }
     if (req.url === "/valid.svg" || req.url === "/invalid.svg") {
@@ -98,14 +105,14 @@ test("the owned browser renders portrait video at 4K and validates effects/SVG",
       const cpu = cases.map(p=>alphas(pixelPass({id:'qa'},p,foreground,0,0,4,4,4,4)));
       pixGL.gl=hardwareGL;
       (async()=>{
-        const video=document.createElement('video');video.muted=true;video.playsInline=true;
+        const video=document.createElement('video');self.portraitProbe=video;video.muted=true;video.playsInline=true;
         const loaded=new Promise((resolve,reject)=>{video.onloadeddata=resolve;video.onerror=()=>reject(Error('portrait video decode failed'));});
         video.src='/portrait.mp4';await loaded;await hardSeekVideo(video,.2);
         const actualVideo=pixelPassGL({id:'portrait'},{temperature:2},video,0,0,video.videoWidth,video.videoHeight,1080,1920,1080);
         if(!actualVideo)throw Error('portrait video GPU pass unavailable');
         const program=document.createElement('canvas');program.width=2160;program.height=3840;
         const pg=program.getContext('2d',{willReadFrequently:true});pg.drawImage(actualVideo,0,0,2160,3840);
-        const portrait={source:[video.videoWidth,video.videoHeight],canvas:[program.width,program.height],pixel:[...pg.getImageData(1080,1920,1,1).data]};
+        const portrait={source:[video.videoWidth,video.videoHeight],canvas:[program.width,program.height],time:video.currentTime,presented:video._fcPresentedTime,pixel:[...pg.getImageData(1080,1920,1,1).data]};
         video.pause();video.removeAttribute('src');video.load();
         await prepareSvgFrame({id:'valid-clip',mediaId:'valid'},.5);
         const svgValid=!!runtime.mediaAux.get('valid').img;
@@ -117,7 +124,7 @@ test("the owned browser renders portrait video at 4K and validates effects/SVG",
         try { await prepareSvgFrame({id:'invalid-clip',mediaId:'invalid'},.5); }
         catch(error) { svgError=error.message; }
         fetch('/result?data=' + encodeURIComponent(JSON.stringify({webgl:!!gl,pixel:[...pixel],strokes,gpu,cpu,svgValid,svgError,svgRelinkError,portrait})));
-      })().catch(error=>fetch('/result?data='+encodeURIComponent(JSON.stringify({error:error.message}))));
+      })().catch(error=>{const v=self.portraitProbe;return fetch('/result?data='+encodeURIComponent(JSON.stringify({error:error.message,video:v&&{time:v.currentTime,ready:v.readyState,seeking:v.seeking,error:v.error?.message,width:v.videoWidth,height:v.videoHeight,presented:v._fcPresentedTime,lastShown:v._fcLastShown}})));});
     </script>`);
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -134,7 +141,9 @@ test("the owned browser renders portrait video at 4K and validates effects/SVG",
   const rendered = await Promise.race([result, new Promise((_, reject) => {
     timer = setTimeout(() => reject(Error("export browser did not report WebGL capabilities")), 20000);
   })]);
-  assert.equal(rendered.error,undefined,rendered.error);
+  assert.equal(rendered.error,undefined,JSON.stringify({error:rendered.error,video:rendered.video}));
+  assert.ok(Math.abs(rendered.portrait.time - .2) < .002, "the source actually sought to the requested time");
+  assert.ok(rendered.portrait.presented <= .2001 && rendered.portrait.presented > .15, "a real target-frame timestamp was observed");
   assert.equal(rendered.webgl, true, "segmentation requires an available WebGL context");
   assert.deepEqual(rendered.pixel, [255, 0, 0, 255]);
   for (const stroke of rendered.strokes) {

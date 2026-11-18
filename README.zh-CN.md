@@ -12,6 +12,8 @@
 
 后台浏览器采用 800×600 的控件视口。Windows 冷启动实测复现硬件视频解码导致 GPU 上下文丢失、人物消失，因此该平台关闭硬件视频解码，GPU/WebGL 图形和抠像仍启用。工程及导出画布仍按已保存尺寸渲染，包括真实 4K，不随控件窗口缩小。软件视频解码可能增加 CPU 开销，仍须检查实际输出。
 
+导出寻帧在发起跳转前登记画面回调，按已观测的源帧区间复用不同输出帧率下的同一画面；时钟回退不用于推算源帧率，避免反复越过正确画面再回跳。
+
 基于 [FableCut](https://github.com/ronak-create/FableCut) 的 DesireCore 受管应用，保留原非线性时间线、JSON 工程、浏览器合成器、音视频工具、REST API 和 `fablecut_*` MCP 工具。配套智能体为独立 [video-editor](https://github.com/desirecore-agent/video-editor) 仓库中的 **视频剪辑师**。
 
 DesireCore 负责安装、权限、进程生命周期、运行代际与应用数据根。应用关联是入口偏好，不授予工具或文件权限。GUI 与 MCP 通过同一个服务和工程修订编辑；受管 MCP 只能连接当前已核代际，不自启第二个服务。
