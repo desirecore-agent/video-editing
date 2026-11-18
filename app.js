@@ -11064,17 +11064,29 @@ function parseSvgSize(txt) {
 }
 async function loadSvgMedia(m) {
   const gen = runtime.projectGen;
-  const txt = await (await fetch(m.src)).text();
+  const src = m.src;
+  const aux = runtime.mediaAux.get(m.id) || {};
+  // Relinking/loading must not leave a previous successful bitmap available
+  // while the new source is pending or after it fails.
+  aux.svgSrc = src; aux.svgText = null; aux.img = null; aux.lastImg = null;
+  runtime.mediaAux.set(m.id, aux);
+  const response = await fetch(src);
+  if (!response.ok) throw new Error(`SVG source HTTP ${response.status}`);
+  const txt = await response.text();
   if (gen !== runtime.projectGen) return;   // another project was opened meanwhile
+  if (aux.svgSrc !== src) return;           // the same media was relinked again
   const { width, height } = parseSvgSize(txt);
   m.width = width; m.height = height;
-  const aux = runtime.mediaAux.get(m.id) || {};
   aux.svgText = txt;
   aux.svgAnimated = /@keyframes|animation\s*:/i.test(txt);
   aux.svgFrames = new Map(); // quantized t -> HTMLImageElement (small LRU)
   aux.svgPending = null;
   runtime.mediaAux.set(m.id, aux);
-  if (!aux.svgAnimated) { const img = await rasterizeSvgMarkup(txt); if (gen === runtime.projectGen) aux.img = img; }
+  if (!aux.svgAnimated) {
+    const img = await rasterizeSvgMarkup(txt);
+    if (gen === runtime.projectGen && aux.svgSrc === src) aux.img = img;
+    else closeSvgFrame(img);
+  }
   state.dirtyTimeline = true;
 }
 function svgMarkupAt(aux, t) {
@@ -11135,10 +11147,10 @@ function getSvgImage(c, t) {
   return aux.lastImg || null; // may be one frame stale during preview
 }
 async function prepareSvgFrame(c, t) {
+  const media = getMedia(c.mediaId);
+  if (!media) throw new Error("SVG media source unavailable");
   let aux = runtime.mediaAux.get(c.mediaId);
-  if (!aux?.svgText || (!aux.svgAnimated && !aux.img)) {
-    const media = getMedia(c.mediaId);
-    if (!media) throw new Error("SVG media source unavailable");
+  if (aux?.svgSrc !== media.src || !aux?.svgText || (!aux.svgAnimated && !aux.img)) {
     await loadSvgMedia(media);
     aux = runtime.mediaAux.get(c.mediaId);
   }

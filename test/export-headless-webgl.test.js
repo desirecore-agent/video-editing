@@ -47,7 +47,8 @@ test("the owned export browser renders effects and refuses invalid SVG", {
       const scratch = document.createElement('canvas');
       const scratchCtx = scratch.getContext('2d',{willReadFrequently:true});
       const runtime={projectGen:1,mediaAux:new Map()},state={};
-      const getMedia=id=>({id,src:'/'+id+'.svg'}),mediaTimeAt=()=>.5,projectFps=()=>30;
+      const sourceMap={valid:'valid',invalid:'invalid'};
+      const getMedia=id=>({id,src:'/'+sourceMap[id]+'.svg'}),mediaTimeAt=()=>.5,projectFps=()=>30;
       ${svgCode}
       ${pixelCode}
       ${strokeCode}
@@ -84,10 +85,14 @@ test("the owned export browser renders effects and refuses invalid SVG", {
       (async()=>{
         await prepareSvgFrame({id:'valid-clip',mediaId:'valid'},.5);
         const svgValid=!!runtime.mediaAux.get('valid').img;
+        sourceMap.valid='invalid';
+        let svgRelinkError;
+        try { await prepareSvgFrame({id:'valid-clip',mediaId:'valid'},.5); }
+        catch(error) { svgRelinkError=error.message; }
         let svgError;
         try { await prepareSvgFrame({id:'invalid-clip',mediaId:'invalid'},.5); }
         catch(error) { svgError=error.message; }
-        fetch('/result?data=' + encodeURIComponent(JSON.stringify({webgl:!!gl,pixel:[...pixel],strokes,gpu,cpu,svgValid,svgError})));
+        fetch('/result?data=' + encodeURIComponent(JSON.stringify({webgl:!!gl,pixel:[...pixel],strokes,gpu,cpu,svgValid,svgError,svgRelinkError})));
       })();
     </script>`);
   });
@@ -120,5 +125,6 @@ test("the owned export browser renders effects and refuses invalid SVG", {
   }
   assert.equal(rendered.svgValid,true);
   assert.match(rendered.svgError,/svg raster failed/);
+  assert.match(rendered.svgRelinkError,/svg raster failed/);
   jobs.report(job.id, { status: "done", result: rendered });
 });

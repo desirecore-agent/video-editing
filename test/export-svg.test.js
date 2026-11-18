@@ -4,9 +4,9 @@ const source=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const a=source.indexOf("async function prepareSvgFrame("),b=source.indexOf("/* ═════════════ AI BACKGROUND",a);
 assert(a>=0&&b>a);
 function load({aux,fail=false,missing=false}={}){
- const runtime={mediaAux:new Map(aux?[["icon",aux]]:[])};let loads=0;
+ const runtime={mediaAux:new Map(aux?[["icon",{svgSrc:"/media/icon.svg",...aux}]]:[])};let loads=0;
  const context={runtime,getMedia:()=>missing?null:{id:"icon",src:"/media/icon.svg"},
-  async loadSvgMedia(){loads++;if(fail)throw Error("invalid SVG markup");runtime.mediaAux.set("icon",{svgText:"<svg/>",svgAnimated:false,img:{width:100,height:100}});},
+  async loadSvgMedia(){loads++;if(fail)throw Error("invalid SVG markup");runtime.mediaAux.set("icon",{svgSrc:"/media/icon.svg",svgText:"<svg/>",svgAnimated:false,img:{width:100,height:100}});},
   mediaTimeAt:()=>.5,projectFps:()=>30,async renderSvgFrame(){if(fail)throw Error("invalid animated SVG");return{width:100,height:100};},pruneSvgFrames(){} };
  vm.runInNewContext(source.slice(a,b)+";globalThis.prepare=prepareSvgFrame",context);
  return{prepare:context.prepare,runtime,loads:()=>loads};
@@ -20,6 +20,10 @@ test("a failed static SVG cannot be silently skipped just because its markup is 
 });
 test("a missing SVG media reference refuses the forced frame",async()=>{
  await assert.rejects(load({missing:true}).prepare(clip,.5),/SVG.*source|SVG.*media/i);
+});
+test("a relinked static SVG cannot reuse the old successful bitmap",async()=>{
+ const api=load({aux:{svgSrc:"/media/old.svg",svgText:"old valid SVG",svgAnimated:false,img:{width:100,height:100}},fail:true});
+ await assert.rejects(api.prepare(clip,.5),/invalid SVG markup/);
 });
 test("an animated raster error cannot use a stale preview bitmap",async()=>{
  const api=load({aux:{svgText:"animated",svgAnimated:true,svgFrames:new Map(),lastImg:{width:10,height:10}},fail:true});
