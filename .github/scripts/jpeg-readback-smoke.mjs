@@ -26,7 +26,7 @@ function chunk(start, end) {
 }
 const workerSource = chunk("const JPEG_WORKER_SRC = `", "\n`;").slice("const JPEG_WORKER_SRC = `".length);
 const snapshotSource = chunk("let exportSnapOff = null", "let exportRgbaOff = null");
-const poolSource = chunk("function createJpegWorkers(n)", "function jpegFromBitmap(");
+const poolSource = chunk("function createJpegWorkers(", "function jpegFromBitmap(");
 const injectSource = injection === "one-per-worker" ? `
 const NativeCanvas = OffscreenCanvas;
 let injected = false;

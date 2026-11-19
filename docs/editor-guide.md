@@ -2844,6 +2844,17 @@ as `result.diagnostics.jpegReadbackRecoveries` entries
 `{frame, reason:"EncodingError", readback:"cpu"}`. Verify those frames and their
 neighbours in the actual output; a JPEG alone does not prove scene correctness.
 
+A worker error or undecodable message rejects that worker's pending frame
+promises and stops it; it is not silently replaced. A missing JPEG response
+fails within 30 seconds with its zero-based frame. Frame preparation, video
+seek and backpressure/drain waits fail within 45 seconds with
+`EXPORT_FRAME <index> <step>`. Outstanding uploads/waits are aborted on failure;
+no frame is skipped or automatically rendered again. These asynchronous bounds
+are below the owner's 120-second stall limit. They cannot diagnose a completely
+blocked browser thread; a generic stall alone does not establish a crash, GPU
+failure or memory exhaustion. Keep the original failed job and inspect actual
+step/frame evidence before an explicit new attempt.
+
 The explicit native fixture below runs the production snapshot and JPEG worker
 code against bounded 2160×3840 pixels in a separately owned browser. It does not
 start an editor server or certify a full export. Use an already prepared runtime

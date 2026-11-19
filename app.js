@@ -16875,7 +16875,7 @@ self.onmessage = (e) => {
   });
 };
 `;
-function createJpegWorkers(n) {
+function createJpegWorkers(n, timeoutMs = 30_000) {
   if (typeof Worker !== "function" || typeof OffscreenCanvas !== "function") return null;
   let url;
   try { url = URL.createObjectURL(new Blob([JPEG_WORKER_SRC], { type: "text/javascript" })); }
@@ -16892,30 +16892,56 @@ function createJpegWorkers(n) {
   const pending = new Map();
   const readbackRecoveries = [];
   let nextId = 0, rr = 0;
+  const failed = new Set();
+  const failWorker = (w, message) => {
+    failed.add(w);
+    for (const [id, rec] of pending) {
+      if (rec.worker !== w) continue;
+      pending.delete(id);
+      clearTimeout(rec.timer);
+      rec.reject(new Error("JPEG frame " + rec.frame + ": " + message));
+    }
+    // The transferred bitmaps belong to this worker. Stop it to release them;
+    // never replace the worker, re-render a frame or continue an incomplete stream.
+    try { w.terminate(); } catch {}
+  };
   for (const w of workers) {
     w.onmessage = (e) => {
       const rec = pending.get(e.data.id);
       if (!rec) return;
       pending.delete(e.data.id);
+      clearTimeout(rec.timer);
       if (e.data.readbackRecovery) readbackRecoveries.push({ frame: rec.frame, reason: "EncodingError", readback: "cpu" });
       if (e.data.error) rec.reject(new Error("JPEG frame " + rec.frame + ": " + e.data.error));
       else rec.resolve(e.data.buf);
     };
-    w.onerror = () => {};
+    w.onerror = (event) => failWorker(w, "worker failed: " + String(event?.message || "unknown worker error").slice(0, 300));
+    w.onmessageerror = () => failWorker(w, "worker response could not be decoded");
   }
   return {
     encode(bmp, quality, frame) {
       const id = nextId++;
       const w = workers[rr++ % workers.length];
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject, frame: Number.isInteger(frame) ? frame : id });
+        if (failed.has(w)) {
+          try { bmp.close(); } catch {}
+          reject(new Error("JPEG frame " + frame + ": worker is unavailable"));
+          return;
+        }
+        const rec = { resolve, reject, worker: w, frame: Number.isInteger(frame) ? frame : id };
+        rec.timer = setTimeout(() => failWorker(w, "worker did not return a frame within " + timeoutMs + "ms"), timeoutMs);
+        pending.set(id, rec);
         try { w.postMessage({ id, bmp, quality }, [bmp]); }
-        catch (e) { pending.delete(id); reject(e); }
+        catch (e) {
+          pending.delete(id); clearTimeout(rec.timer);
+          try { bmp.close(); } catch {}
+          reject(new Error("JPEG frame " + rec.frame + ": " + String(e.message || e)));
+        }
       });
     },
     readbackRecoveries() { return readbackRecoveries.map(item => ({ ...item })); },
     terminate() {
-      for (const rec of pending.values()) rec.reject(new Error("cancelled"));
+      for (const rec of pending.values()) { clearTimeout(rec.timer); rec.reject(new Error("cancelled")); }
       pending.clear();
       for (const w of workers) try { w.terminate(); } catch { }
     },
@@ -16940,6 +16966,16 @@ function jpegFromBitmap(bmp, quality) {
       rej(canvasTaintError(e));
     }
   });
+}
+/** Bound asynchronous frame work below the owner's stall limit, preserving the
+ *  exact frame and step on failure. Late settlement is observed, never retried. */
+function awaitExportStep(run, stage, frame, timeoutMs = 45_000) {
+  let timer;
+  return Promise.race([
+    Promise.resolve().then(run),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("did not finish within " + timeoutMs + "ms")), timeoutMs); }),
+  ]).catch(error => { throw new Error("EXPORT_FRAME " + frame + " " + stage + ": " + String(error?.message || error)); })
+    .finally(() => clearTimeout(timer));
 }
 /** Preview may already be tainted (cross-origin PiP, old data: SVG). Resetting
  *  width clears the bitmap and the origin-clean flag; export redraws each frame. */
@@ -17911,12 +17947,12 @@ async function fastExport(opts = {}) {
       // enough that play-ahead would overrun during the wait (not on every blip).
       const queueBusy = pixelsInflight > 6 || up.inFlight() > 4;
       if (pixelsInflight > 4) pauseExportVideos();
-      await waitPixels(6);
-      await up.waitBackpressure(4);
+      await awaitExportStep(() => waitPixels(6), "pixel-backpressure", f);
+      await awaitExportStep(() => up.waitBackpressure(4), "upload-backpressure", f);
       const t = t0 + f / fps;
       state.time = t;
-      await seekVideosTo(t, { queueBusy });
-      await prepareFrameAssets(t);
+      await awaitExportStep(() => seekVideosTo(t, { queueBusy }), "video-seek", f);
+      await awaitExportStep(() => prepareFrameAssets(t), "frame-assets", f);
       drawFrame(t);
       const snap = rgba ? { kind: "raw", px: snapshotExportRgba() } : snapshotExportFrame();
       pixelsInflight++;
@@ -17937,6 +17973,9 @@ async function fastExport(opts = {}) {
           } catch (e) { rej(canvasTaintError(e)); }
         });
       }
+      // A later worker can fail before the ordered chain reaches it. Observe it
+      // immediately so backpressure exits and no rejection is silently orphaned.
+      jpegP.catch(setError);
       pixelChain = pixelChain.then(async () => {
         if (renderCancelled || signal.aborted) throw new Error("cancelled");
         if (uploadError) throw uploadError;
@@ -17944,16 +17983,17 @@ async function fastExport(opts = {}) {
         if (!buf || !(buf.byteLength || buf.size || buf.length)) throw new Error("frame encode failed");
         up.push(buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf);
       }).catch((err) => { setError(err); throw err; }).finally(() => { pixelsInflight--; });
+      pixelChain.catch(() => {}); // consumed in order below, including while a frame step awaits
       const pct = ((f + 1) / frames) * 100;
       els.exportProgress.style.width = pct.toFixed(1) + "%";
       els.exportTitle.textContent = `Rendering… ${pct.toFixed(0)}%`;
       if (opts.onProgress) opts.onProgress(0.97 * (f + 1) / frames);
       if (job) reportExportJob(job, { progress: 0.97 * (f + 1) / frames });
     }
-    await pixelChain;
+    await awaitExportStep(() => pixelChain, "jpeg-drain", frames - 1);
     if (uploadError) throw uploadError;
     els.exportTitle.textContent = "Encoding…";
-    await up.done();
+    await awaitExportStep(() => up.done(), "upload-drain", frames - 1);
     if (uploadError) throw uploadError;
     } finally {
       try { workers?.terminate(); } catch { }
@@ -17987,6 +18027,7 @@ async function fastExport(opts = {}) {
       a.click();
     }
   } catch (e) {
+    exportAbort?.abort(); // release outstanding waits/uploads when a frame step fails or times out
     if (sessId) fetch("/api/export/end?id=" + sessId + "&discard=1", { method: "POST" }).catch(() => { });
     const msg = e?.name === "AbortError" ? "cancelled" : String(e.message || e);
     result = { error: msg, cancelled: msg === "cancelled" };
