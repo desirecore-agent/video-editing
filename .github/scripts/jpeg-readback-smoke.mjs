@@ -26,6 +26,7 @@ function chunk(start, end) {
 }
 const workerSource = chunk("const JPEG_WORKER_SRC = `", "\n`;").slice("const JPEG_WORKER_SRC = `".length);
 const snapshotSource = chunk("function snapshotExportFrame()", "const JPEG_WORKER_SRC =");
+const resetSource = chunk("function resetExportCanvases()", "function waitMediaEl(");
 const poolSource = chunk("function createJpegWorkers(", "function jpegFromBitmap(");
 const injectSource = injection === "one-per-worker" ? `
 const NativeCanvas = OffscreenCanvas;
@@ -83,16 +84,22 @@ try {
   if (!page) throw Error("Owned fixture page missing");
   ({ sessionId } = await send("Target.attachToTarget", { targetId: page.targetId, flatten: true }, null));
   await evaluate(`
+    "use strict";
     const sourceCanvas = document.createElement("canvas");
     sourceCanvas.width = 2160; sourceCanvas.height = 3840;
     const sourceContext = sourceCanvas.getContext("2d", { alpha: false });
     function exportSourceCanvas() { return sourceCanvas; }
     function canvasTaintError(error) { return error; }
     ${snapshotSource}
+    const els = { preview: sourceCanvas }, adjScratch = new OffscreenCanvas(1, 1), scratch = new OffscreenCanvas(1, 1);
+    const pixGL = { stage: new OffscreenCanvas(1, 1), outs: new Map() };
+    let exportCropCanvas = null, exportCropCtx = null;
+    ${resetSource}
+    resetExportCanvases();
     const JPEG_WORKER_SRC = ${JSON.stringify(injectSource + workerSource)};
     ${poolSource}
     globalThis.fixture = { status: "running", completed: 0, frames: ${frames}, width: 2160, height: 3840,
-      injection: ${JSON.stringify(injection)}, queuePeak: 0, pixelChecks: [], bytes: 0, appExportVerified: false };
+      injection: ${JSON.stringify(injection)}, resetValidated: true, queuePeak: 0, pixelChecks: [], bytes: 0, appExportVerified: false };
     (async () => {
       const pool = createJpegWorkers(3), queue = [];
       if (!pool) throw Error("Actual native JPEG workers unavailable");

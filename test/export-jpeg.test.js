@@ -180,3 +180,18 @@ test("workerless pixel JPEG fallback frees its canvas on success and failed read
   assert(canvases.every(c => c.width === 0 && c.height === 0 && c.cpu));
   assert.equal(canvases[0].pixels[0], 7); assert.equal(canvases[1].pixels[0], 8);
 });
+
+test("export reset clears current CPU/crop stores without relying on retired snapshot globals", () => {
+  const start = app.indexOf("function resetExportCanvases()"), end = app.indexOf("function waitMediaEl(", start);
+  const canvas = () => ({ width: 4, height: 4 });
+  const env = { preview: canvas(), crop: canvas(), cpu: canvas(), scratch: canvas(), adj: canvas(),
+    pixel: { stage: canvas(), outs: new Map([["old", canvas()]]) } };
+  const run = new Function("env", '"use strict"; const els={preview:env.preview},scratch=env.scratch,adjScratch=env.adj,pixGL=env.pixel;'
+    + 'let exportCropCanvas=env.crop,exportCropCtx={},exportRgbaOff=env.cpu,exportRgbaCtx={};'
+    + app.slice(start, end) + ';resetExportCanvases();return {exportCropCtx,exportRgbaOff,exportRgbaCtx};');
+  const result = run(env);
+  assert.equal(result.exportCropCtx, null);
+  assert.equal(result.exportRgbaOff, null); assert.equal(result.exportRgbaCtx, null);
+  assert.equal(env.cpu.width, 0); assert.equal(env.cpu.height, 0);
+  assert.equal(env.pixel.outs.size, 0);
+});

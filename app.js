@@ -17001,8 +17001,9 @@ function resetExportCanvases() {
   scratch.width = scratch.width;
   if (pixGL.stage) pixGL.stage.width = pixGL.stage.width;   // the GPU pixel pass keeps these between frames
   pixGL.outs.clear();
-  exportSnapOff = null;
-  exportSnapCtx = null;
+  if (exportRgbaOff) { exportRgbaOff.width = 0; exportRgbaOff.height = 0; }
+  exportRgbaOff = null;
+  exportRgbaCtx = null;
 }
 function waitMediaEl(el, ms = 2500) {
   if (el.readyState >= 2 && !(el.error)) return Promise.resolve();
