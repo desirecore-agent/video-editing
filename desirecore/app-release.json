@@ -45,14 +45,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "dd658ccbe30d803c7de68f652d61dd6b35bf69e20172cf0964292b70514e16d2",
-      "size": 7744,
+      "sha256": "1b0a3e4e52c05e5a637972945e5d1f0c24ad9b27fb9e6d57266c0a5e05e202ec",
+      "size": 8075,
       "role": "documentation"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "7643e35ff9d0164c62a672e426b6d8f8c86e8ea1eccbec4044207ea9b9094c2d",
-      "size": 6574,
+      "sha256": "399b74b1d9ac67dbf1ea649e011697941ccb84878992def3e773c44146745656",
+      "size": 6868,
       "role": "documentation"
     },
     {
@@ -219,8 +219,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "135341ea5c68113ffeef0b4516ab5df730c7ce6dcd4770fc7ce0e0edfb8e163d",
-      "size": 190216,
+      "sha256": "aba1a48c4031e461301fe606028d3f2bed0b24439ea7b92a0e1f67c5de2fd24b",
+      "size": 190757,
       "role": "documentation"
     },
     {
@@ -293,6 +293,12 @@
       "path": "history.js",
       "sha256": "69a2823acb07ba3e9cb6de075bd6f5a8081726b7335fb7368aa6a715249bbe00",
       "size": 18937,
+      "role": "runtime"
+    },
+    {
+      "path": "http-file-stream.js",
+      "sha256": "23be1f914cfb04edc4aa815b0476c7e06547a1d5a88d2526852379e85f9fc70c",
+      "size": 969,
       "role": "runtime"
     },
     {
@@ -765,8 +771,8 @@
     },
     {
       "path": "server.js",
-      "sha256": "3d8934f6fce011f0cbfca243b75357b6bacaa64b71877f8009f0c9715aedcac0",
-      "size": 87825,
+      "sha256": "ff30edd6f34cf354b3b26ec6e574c1d5da0f201d97665909f8078f6949215c88",
+      "size": 87863,
       "role": "runtime"
     },
     {
@@ -832,7 +838,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "4c76c556fcf94f34e918db7babf6b45a0febc6828cf2d481e2200e998e9b4b16"
+    "sha256": "a22fed57ee2495917e40e3647ed2350f2da9d9d0f9ff5903358ce57fc8aa7ec9"
   },
   "supportedPlatforms": [
     "darwin",
@@ -865,5 +871,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "b16ce72f893fc1785b40425817a9cc64ee99bff21c1cb7348ae5311708dcb099"
+  "releaseDigest": "113d13f76d26fe1f51832ddfea5439ebb1bb80ffca157b580da80ce7ded1225b"
 }

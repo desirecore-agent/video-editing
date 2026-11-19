@@ -14,6 +14,8 @@
 
 导出寻帧在发起跳转前登记画面回调，按已观测的源帧区间复用不同输出帧率下的同一画面；时钟回退不用于推算源帧率，避免反复越过正确画面再回跳。
 
+媒体 Range、静态文件、缩略图和缓存帧共用文件传输生命周期。浏览器中断请求时关闭对应读取流；异步打开或读取失败只使该次传输失败，不再因未处理的流错误终止编辑服务。成功传输的字节和 Range 响应保持原契约。
+
 基于 [FableCut](https://github.com/ronak-create/FableCut) 的 DesireCore 受管应用，保留原非线性时间线、JSON 工程、浏览器合成器、音视频工具、REST API 和 `fablecut_*` MCP 工具。配套智能体为独立 [video-editor](https://github.com/desirecore-agent/video-editor) 仓库中的 **视频剪辑师**。
 
 DesireCore 负责安装、权限、进程生命周期、运行代际与应用数据根。应用关联是入口偏好，不授予工具或文件权限。GUI 与 MCP 通过同一个服务和工程修订编辑；受管 MCP 只能连接当前已核代际，不自启第二个服务。

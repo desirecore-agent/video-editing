@@ -21,6 +21,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawn, spawnSync, execFile } = require("./native-process");
+const { streamFileResponse } = require("./http-file-stream");
 
 const { analyze, frame, frameGrid } = require("./analyze");
 const {
@@ -606,13 +607,13 @@ function serveFile(req, res, filePath) {
         "Content-Range": `bytes ${start}-${end}/${st.size}`,
         "Content-Length": end - start + 1, ...extra,
       });
-      fs.createReadStream(filePath, { start, end }).pipe(res);
+      streamFileResponse(res, filePath, { start, end });
     } else {
       res.writeHead(200, {
         "Content-Type": type, "Content-Length": st.size,
         "Accept-Ranges": "bytes", "Cache-Control": "no-cache", ...extra,
       });
-      fs.createReadStream(filePath).pipe(res);
+      streamFileResponse(res, filePath);
     }
   });
 }
@@ -730,7 +731,7 @@ const server = http.createServer(async (req, res) => {
       const file = projects.thumbPath(id);
       if (!file) { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-store" });
-      fs.createReadStream(file).pipe(res);
+      streamFileResponse(res, file);
       return;
     }
     try { sendJSON(res, 200, projects.setThumb(id, await readBody(req))); }
@@ -1455,7 +1456,7 @@ const server = http.createServer(async (req, res) => {
         "X-FableCut-Frame-Times": (meta.times || []).join(","),
         "X-FableCut-Frame-Source": encodeURI(meta.source || src),
       });
-      fs.createReadStream(cache).pipe(res);
+      streamFileResponse(res, cache);
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
       /* A bad argument, a missing file, or a timestamp past the end is the

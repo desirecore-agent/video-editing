@@ -170,6 +170,14 @@ application update can replace the code without touching the project. **Don't as
 `project.json` is beside `mcp-server.js`** — call `fablecut_status`, which
 reports the real paths.
 
+HTTP media ranges, static assets, project thumbnails and cached-frame responses
+use the same file-stream lifetime. An interrupted browser response destroys its
+source reader, including an unfinished large video range. An asynchronous file
+open/read error fails that response and is handled without an unhandled stream
+error terminating the service. A failed graphic/media fetch still needs the
+original frame/export job to report its normal failure; it is not a successful
+render. Successful transfer bytes and Range headers are unchanged.
+
 Tests (and nothing else) may set **`FABLECUT_NO_FS_WATCH=1`** to skip `fs.watch`.
 On Windows, libuv can abort the process when a file is created under a temp
 data dir. Production leaves watching on so the UI live-reloads.

@@ -20,6 +20,8 @@ The owned background window uses an 800×600 viewport for its controls. On Windo
 
 Export seeking registers presented-frame callbacks before the seek and reuses verified source-frame intervals across output rates. Clock-only fallback does not teach a source frame rate, avoiding repeated seeks past the correct picture.
 
+HTTP media ranges, static files, thumbnails and cached frames share a file-transfer lifetime. Closing a browser request closes its file reader; asynchronous open/read failures fail that transfer instead of terminating the editor with an unhandled stream error. Completed transfers retain their existing bytes and Range responses.
+
 Use Node 22 or newer from DesireCore's managed runtime PATH. Native FFmpeg, ffprobe and a headless browser are prepared explicitly in the application's data directory; see [the runtime and backup contract](desirecore/RUNTIME.md). No developer machine paths or native binaries are bundled.
 
 ```sh
