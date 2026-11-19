@@ -87,8 +87,8 @@
     },
     {
       "path": "browser-process.js",
-      "sha256": "90cb24f8a455e707e161bebb0af95537bfce126f959470fdbbcf1b184cc12002",
-      "size": 2741,
+      "sha256": "c636aeb8cf42599e2b4e4231e7d28e146e732bb981911e01260a8cfd8846a176",
+      "size": 6226,
       "role": "runtime"
     },
     {
@@ -141,8 +141,8 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "2201ac4d18fc01dfd5b2eafc37492f5ed9cde214f6d3d080beb6efcfc3838160",
-      "size": 18948,
+      "sha256": "f9ae80c1b1c9eb3d0ccf09dd6991b1bc7b5a14adaa022fed31472c7930bc8882",
+      "size": 19756,
       "role": "documentation"
     },
     {
@@ -219,8 +219,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "b96274d72981495ba7d3a162693b13bb2e311cdac73d062ed554cf861b07cca5",
-      "size": 193436,
+      "sha256": "8929e8bae8cdbcbd3bb7b67a4c060e1d9948ac356067238e1bd633d751a1ed39",
+      "size": 194687,
       "role": "documentation"
     },
     {
@@ -249,8 +249,8 @@
     },
     {
       "path": "export-jobs.js",
-      "sha256": "ffba9593e889f95be05fc5e239db1bc7b88aeacd4784a75532990429b944accc",
-      "size": 27031,
+      "sha256": "a0c22571ad71e9ae00a9eb9b25fafa433ae5eec1e1cf561b146477a8b4098c42",
+      "size": 27401,
       "role": "runtime"
     },
     {
@@ -838,7 +838,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "ebdf2414521ab4fd9d2518d7024dc5334c82e6e9b9e606dd01c16617a98291fc"
+    "sha256": "d950724b2b89868fc8a1fe71ba9f8ff5053c58c0b42cb36929598dcbc65e8bd0"
   },
   "supportedPlatforms": [
     "darwin",
@@ -871,5 +871,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "7697fbc0f56d9c7334c1c0409a89adb4b205e66c0554c3779b2abe54928f269a"
+  "releaseDigest": "72fefa0bbf9c2fdc66f0c3af9b4015c2f0575e67a00d0578a4f54e5001c6af59"
 }

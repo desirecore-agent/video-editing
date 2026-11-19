@@ -53,7 +53,7 @@ function createExportJobs(opts) {
   const view = (j) => ({
     id: j.id, kind: j.kind, status: j.status, via: j.via, range: j.range, profile: j.profile || null, preset: j.delivery ? j.delivery.preset || "custom" : null,
     time: j.time ?? null, progress: j.progress, src: j.src || null, result: j.result || null, error: j.error || null,
-    snapshot: j.snapshot || null, cleanup: j.cleanup || null,
+    snapshot: j.snapshot || null, cleanup: j.cleanup || null, diagnostics: j.diagnostics || null,
     created: j.created, updated: j.updated,
   });
 
@@ -235,6 +235,8 @@ function createExportJobs(opts) {
   }
   function end(j, status, fields = {}) {
     if (isEnded(j)) return;
+    if (status !== "done" && j.browser?.diagnostics)
+      j.diagnostics = { browser: j.browser.diagnostics() };
     Object.assign(j, fields, { status, updated: Date.now() });
     persist(j);
     closeBrowser(j);
@@ -274,11 +276,16 @@ function createExportJobs(opts) {
       // portrait video; keep the controls compact and render at project size.
       "--disable-backgrounding-occluded-windows", "--window-size=800,600",
       opts.url(j.id),
-    ], { profileDir, keep: !!kept });
+    ], { profileDir, keep: !!kept, onTargetCrash: crash => {
+      if (crash.type !== "page" || crash.url !== opts.url(j.id) || isEnded(j)) return;
+      end(j, "failed", { error: `the export page crashed: ${crash.status} (Chromium error ${crash.errorCode})` });
+    } });
     const { proc } = browser;
     j.browser = browser;
     proc.on("error", (e) => end(j, "failed", { error: "could not start the headless browser: " + e.message }));
-    proc.on("exit", () => { if (j.browser) { j.browser = null; if (!isEnded(j)) end(j, "failed", { error: "the headless browser exited before the export finished" }); } });
+    proc.on("exit", () => {
+      if (j.browser && !isEnded(j)) end(j, "failed", { error: "the headless browser exited before the export finished" });
+    });
   }
 
   return {

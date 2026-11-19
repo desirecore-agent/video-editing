@@ -2863,6 +2863,27 @@ blocked browser thread; a generic stall alone does not establish a crash, GPU
 failure or memory exhaustion. Keep the original failed job and inspect actual
 step/frame evidence before an explicit new attempt.
 
+The existing exclusive DevTools pipe also observes Chromium's
+`Target.targetCrashed`. A matching job page crash ends that original job with
+the reported termination status/error code, even if the browser root remains
+alive. Failure receipts expose `diagnostics.browser`: the original browser PID,
+discovery support, up to eight target-crash facts, a 16 KiB stderr tail and
+observed root exit facts. Target-crash entries omit URLs/titles; stderr can
+contain local paths or URLs. The PID is observational, never a restart kill
+target. Owner-induced closure is labelled and cannot replace
+the original terminal result. Unsupported discovery remains explicit and uses
+the unchanged stall contract; absence of a crash event does not prove a hang,
+GPU failure or memory exhaustion. Logs can contain local paths and remain
+runtime data. The observer adds no debug port or attachment to another browser.
+
+An explicit blank-page fixture validates this observation and ordinary close
+against an already prepared native runtime. It intentionally crashes its own
+page, not an editor or movie, and does not reproduce a natural video failure:
+
+```sh
+node .github/scripts/browser-crash-smoke.mjs --data-dir /owned/prepared-data --out /new/crash-observation-dir
+```
+
 The explicit native fixture below runs the production CPU snapshot and JPEG worker
 code against bounded 2160×3840 pixels in a separately owned browser. It checks
 that ownership transfers, and checks decoded frame-identity pixels. It does not

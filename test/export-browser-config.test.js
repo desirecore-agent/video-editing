@@ -23,7 +23,9 @@ for (const platform of ["win32", "darwin", "linux"]) {
         if (name === "./browser-process") return {
           createBrowserProcess(exe, args, options) {
             launched = { exe, args, options };
-            return { proc: new EventEmitter(), close() {} };
+            return { proc: new EventEmitter(), close() {}, diagnostics() {
+              return { discovery: "enabled", targetCrashes: [{ type: "page", status: "oom", errorCode: 5, ownerClosing: false }], stderrTail: "unit diagnostic", exit: null };
+            } };
           },
         };
         return nativeRequire(name);
@@ -45,5 +47,16 @@ for (const platform of ["win32", "darwin", "linux"]) {
     assert.ok(!launched.args.includes("--disable-gpu"));
     assert.ok(!launched.args.includes("--no-sandbox"));
     assert.ok(launched.args.includes(`http://127.0.0.1:1234/?exportJob=${job.id}`));
+    const crash = { type: "page", url: `http://127.0.0.1:1234/?exportJob=${job.id}`, status: "oom", errorCode: 5 };
+    launched.options.onTargetCrash({ ...crash, type: "worker" });
+    launched.options.onTargetCrash({ ...crash, url: "http://127.0.0.1:1234/another-page" });
+    assert.equal(jobs.get(job.id).status, "pending", "unrelated targets cannot terminate this job");
+    launched.options.onTargetCrash(crash);
+    const failed = jobs.get(job.id);
+    assert.equal(failed.status, "failed");
+    assert.match(failed.error, /export page crashed: oom .*error 5/);
+    assert.equal(failed.diagnostics.browser.targetCrashes[0].status, "oom");
+    launched.options.onTargetCrash({ ...crash, status: "killed" });
+    assert.equal(jobs.get(job.id).error, failed.error, "late owner-close events cannot rewrite the original failure");
   });
 }
