@@ -2834,11 +2834,19 @@ client can still impose its own deadline. Restart preserves an unfinished origin
 automatic continuation or an original-ID retry. Persistent snapshots and
 completed files remain retained facts, separate from temporary encoder paths.
 
-JPEG workers keep their `ImageBitmap` until encoding finishes. On a worker's
-first `EncodingError`, the failed canvas is released and the same retained
-snapshot is encoded once on a CPU-readback canvas. That worker then reuses the
-CPU canvas. This does not seek again, redraw the compositor, skip a frame or
-restart a job. A failed recovery or another error still fails the original job.
+Fast JPEG export pins an immutable RGBA snapshot synchronously using the same
+CPU readback primitive as raw-frame export, before drawing another frame.
+The buffer is transferred to a worker, which puts those exact pixels into a
+reused CPU-readback canvas. Up to seven snapshot buffers are in flight; the
+three workers reuse their canvases. This adds explicit CPU readback/transfer
+work, rather than depending on a GPU-backed `ImageBitmap` remaining readable
+later. The compositor, effects, resolution, frame order and delivery stay the same.
+
+On a worker's first `EncodingError`, the failed canvas is released and the
+same retained pixels are encoded once on a fresh CPU-readback canvas. Its
+bitmap compatibility path likewise retains the original bitmap until it
+finishes. This does not seek again, redraw, skip a frame or restart a job.
+A failed recovery or another error still fails the original job.
 Delivery-mode success receipts record actual recovered zero-based frame indices
 as `result.diagnostics.jpegReadbackRecoveries` entries
 `{frame, reason:"EncodingError", readback:"cpu"}`. Verify those frames and their
@@ -2855,8 +2863,9 @@ blocked browser thread; a generic stall alone does not establish a crash, GPU
 failure or memory exhaustion. Keep the original failed job and inspect actual
 step/frame evidence before an explicit new attempt.
 
-The explicit native fixture below runs the production snapshot and JPEG worker
-code against bounded 2160×3840 pixels in a separately owned browser. It does not
+The explicit native fixture below runs the production CPU snapshot and JPEG worker
+code against bounded 2160×3840 pixels in a separately owned browser. It checks
+that ownership transfers, and checks decoded frame-identity pixels. It does not
 start an editor server or certify a full export. Use an already prepared runtime
 and a new observation directory. The injected variant deliberately fails the
 first encode in each worker, then checks decoded frame-identity pixels; it is

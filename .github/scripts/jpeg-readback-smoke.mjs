@@ -25,7 +25,7 @@ function chunk(start, end) {
   return source.slice(a, b);
 }
 const workerSource = chunk("const JPEG_WORKER_SRC = `", "\n`;").slice("const JPEG_WORKER_SRC = `".length);
-const snapshotSource = chunk("let exportSnapOff = null", "let exportRgbaOff = null");
+const snapshotSource = chunk("function snapshotExportFrame()", "const JPEG_WORKER_SRC =");
 const poolSource = chunk("function createJpegWorkers(", "function jpegFromBitmap(");
 const injectSource = injection === "one-per-worker" ? `
 const NativeCanvas = OffscreenCanvas;
@@ -129,8 +129,9 @@ try {
           sourceContext.fillStyle = "rgb(" + color(f).join(",") + ")";
           sourceContext.fillRect(0, 0, 192, 192);
           const snap = snapshotExportFrame();
-          if (snap.kind !== "bmp") throw Error("Native bitmap snapshot unavailable");
-          const promise = pool.encode(snap.bmp, .95, f);
+          if (snap.kind !== "rgba" || snap.data.byteLength !== 2160 * 3840 * 4) throw Error("Native CPU pixel snapshot unavailable");
+          const promise = pool.encodePixels(snap.data, snap.w, snap.h, .95, f);
+          if (snap.data.byteLength !== 0) throw Error("CPU pixel ownership was not transferred");
           promise.catch(() => {}); // consume owns the error, including queued failures.
           queue.push({ frame: f, promise }); fixture.queuePeak = Math.max(fixture.queuePeak, queue.length);
           if (queue.length >= 7) await consume();

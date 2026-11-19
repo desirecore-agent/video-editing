@@ -70,6 +70,8 @@ GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 
 
 JPEG worker 的 error/messageerror 明确拒绝其未完成帧并停止该线程，不静默替换或重做帧；30秒没有 JPEG 返回时带零基帧号失败。异步视频 seek、素材准备、背压与排空在45秒内明确报告 `EXPORT_FRAME <帧号> <步骤>`，失败时终止未完成上传/等待，保留原 job。此边界早于 owner 的120秒失联上限，不能识别完全阻塞的浏览器主线程；只有“停止回报进度”不能证明浏览器崩溃、GPU或内存根因。先据实际步骤与帧调查，再明确新 retry，不自动重启整片。
 
+Fast JPEG 在合成线程推进前复用原有 CPU `getImageData` 原语固定当前帧的 RGBA 字节，转移 buffer 给 worker，再用复用的 CPU 画布编码；最多7份快照背压和原帧序保持。它增加明确的 CPU 读回/传输工作，避免依赖稍后可能失效的 GPU-backed ImageBitmap；不换合成器、效果、分辨率或交付格式。首次 EncodingError 可重建 CPU 画布并用保留的同帧字节编码一次，失败仍终止原 job。生产 workerless 回退同样使用 CPU 像素，并在读回结束或失败时释放其画布。
+
 MCP 尚未配置时，先从平台 `AppAuthoring runtime_read` 取得当前 healthy binding，并用本材料的 `connection --binding-file` 生成已核连接快照。`mcp-config --runtime-file` 输出通用 stdio 启动描述 `{command,args,cwd}`；DesireCore 原 MCP 配置合同还须 `transport:"stdio"`，沿已有授权入口按当前 Schema 应用，下一正常轮次重新发现并真实调用 `fablecut_status` 才能证明连接可用。`docs --section "REST API"` 在服务未启动时也可读取同版权威手册。一般 Bash 进程不因运行在 TaskHost 就取得应用代际；缺合同先沿原纳管流程恢复。
 
 导出对启用且正在显示的视频逐帧检查实际解码画面；`VIDEO_FRAME_UNAVAILABLE` 是原 job 失败，不输出成功成片引用。它不按黑色像素拒绝合法黑场。字幕 `props.emphasis` 保存静态关键词与 RGB 颜色，持续作用于整句显示期间，GUI/MCP/导出共用此数据；不是逐词跟读效果。完整工程保存先通过原提交点的结构和引用校验，失败保留原字节与修订。

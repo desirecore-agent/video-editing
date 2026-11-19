@@ -11,11 +11,12 @@ const workerEnd = app.indexOf("\n`;", workerStart);
 assert(workerStart > 0 && workerEnd > workerStart);
 const workerSource = app.slice(workerStart, workerEnd);
 
-function worker({ gpuFailures = [], cpuFailures = [], securityFailures = [] } = {}) {
+function worker({ gpuFailures = [], cpuFailures = [], securityFailures = [], transientCpuFailures = [] } = {}) {
   const canvases = [], messages = [];
   let complete;
   const done = new Promise(resolve => { complete = resolve; });
   const expected = { count: 0 };
+  const transient = new Set(transientCpuFailures);
   class Canvas {
     constructor(width, height) {
       this.width = width;
@@ -29,7 +30,7 @@ function worker({ gpuFailures = [], cpuFailures = [], securityFailures = [] } = 
       return { drawImage: bitmap => {
         if (bitmap.closed) throw new Error("cannot draw a closed bitmap");
         this.frameId = bitmap.id; this.fail = bitmap.fail;
-      } };
+      }, putImageData: image => { this.frameId = image.data[0]; this.fail = false; } };
     }
     async convertToBlob() {
       // A readback can settle after the next worker message arrives.
@@ -38,7 +39,8 @@ function worker({ gpuFailures = [], cpuFailures = [], securityFailures = [] } = 
       if (securityFailures.includes(this.frameId)) {
         const error = new Error("origin is not clean"); error.name = "SecurityError"; throw error;
       }
-      if ((this.cpuReadback ? cpuFailures : gpuFailures).includes(this.frameId)) {
+      const firstCpuFailure = this.cpuReadback && transient.delete(this.frameId);
+      if (firstCpuFailure || (this.cpuReadback ? cpuFailures : gpuFailures).includes(this.frameId)) {
         const error = new Error("Encoding of the source image has failed."); error.name = "EncodingError"; throw error;
       }
       const frameId = this.frameId;
@@ -49,14 +51,15 @@ function worker({ gpuFailures = [], cpuFailures = [], securityFailures = [] } = 
     messages.push(message);
     if (messages.length === expected.count) complete();
   } };
-  vm.runInNewContext(workerSource, { self, OffscreenCanvas: Canvas });
-  async function send(bitmaps) {
+  class ImageData { constructor(data, width, height) { this.data = data; this.width = width; this.height = height; } }
+  vm.runInNewContext(workerSource, { self, OffscreenCanvas: Canvas, ImageData, Uint8ClampedArray });
+  async function send(bitmaps, pixels = false) {
     expected.count = bitmaps.length;
-    for (const bitmap of bitmaps) self.onmessage({ data: { id: bitmap.id, bmp: bitmap } });
+    for (const bitmap of bitmaps) self.onmessage({ data: pixels ? bitmap : { id: bitmap.id, bmp: bitmap } });
     await done;
     return messages;
   }
-  return { send, canvases };
+  return { send, sendPixels: frames => send(frames, true), canvases };
 }
 
 const bitmap = (id, fail = false) => ({ id, fail, width: 2160, height: 3840,
@@ -132,4 +135,48 @@ test("main-thread JPEG fallback releases its native canvas after readback", asyn
   assert(source.closed);
   assert.equal(canvases[0].width, 0);
   assert.equal(canvases[0].height, 0);
+});
+
+test("CPU pixel snapshots retain their exact frame through queued JPEG encode and one readback reset", async () => {
+  const encoder = worker({ transientCpuFailures: [1] });
+  const frames = [1, 2, 3].map(id => ({ id, data: new Uint8Array(4 * 4 * 4).fill(id), width: 4, height: 4 }));
+  const outputs = await encoder.sendPixels(frames);
+  assert(outputs.every(x => !x.error));
+  for (const output of outputs) assert.equal(new Uint32Array(output.buf)[0], output.id);
+  assert.equal(outputs.filter(x => x.readbackRecovery).length, 1);
+  assert.equal(encoder.canvases.length, 2, "one retired CPU store, then one reused CPU store");
+  assert(encoder.canvases.every(x => x.cpuReadback));
+});
+
+test("compositor pins independent CPU bytes before later frames change its source", () => {
+  const start = app.indexOf("function snapshotExportFrame()"), end = app.indexOf("const JPEG_WORKER_SRC =", start);
+  let options;
+  const source = { width: 2, height: 2, frame: 1 };
+  class Canvas {
+    constructor(w, h) { this.width = w; this.height = h; }
+    getContext(_kind, value) {
+      options = value;
+      return { drawImage: src => { this.frame = src.frame; }, getImageData: () => ({ data: new Uint8ClampedArray(16).fill(this.frame) }) };
+    }
+    transferToImageBitmap() { throw Error("a GPU-backed bitmap must not escape the compositor"); }
+  }
+  const snapshot = new Function("exportSourceCanvas", "OffscreenCanvas", "canvasTaintError", app.slice(start, end) + ";return snapshotExportFrame;")(() => source, Canvas, e => e);
+  const first = snapshot(); source.frame = 2; const second = snapshot();
+  assert.equal(first.kind, "rgba");
+  assert.equal(first.data[0], 1); assert.equal(second.data[0], 2);
+  assert.notEqual(first.data.buffer, second.data.buffer);
+  assert.equal(options.willReadFrequently, true);
+});
+
+test("workerless pixel JPEG fallback frees its canvas on success and failed readback", async () => {
+  const start = app.indexOf("function jpegFromPixels("), end = app.indexOf("/** Bound asynchronous frame work", start), canvases = [];
+  let fail = false;
+  const document = { createElement() { const c = { getContext: (_k, options) => ({ putImageData(image) { c.pixels = [...image.data]; c.cpu = options.willReadFrequently; } }),
+    toBlob(callback) { callback(fail ? null : { arrayBuffer: async () => new ArrayBuffer(8) }); } }; canvases.push(c); return c; } };
+  const encode = new Function("document", "ImageData", "canvasTaintError", app.slice(start, end) + ";return jpegFromPixels;")(document,
+    class { constructor(data) { this.data = data; } }, e => e);
+  assert.equal((await encode(new Uint8Array(16).fill(7), 2, 2, .95)).byteLength, 8);
+  fail = true; await assert.rejects(encode(new Uint8Array(16).fill(8), 2, 2, .95), /frame encode failed/);
+  assert(canvases.every(c => c.width === 0 && c.height === 0 && c.cpu));
+  assert.equal(canvases[0].pixels[0], 7); assert.equal(canvases[1].pixels[0], 8);
 });

@@ -10,7 +10,7 @@ function pool(t, count = 1, timeout = 1000) {
   const workers = [];
   class Worker {
     constructor() { this.messages = []; workers.push(this); }
-    postMessage(data) { this.messages.push(data); }
+    postMessage(data, transfers) { this.messages.push(data); this.transfers = transfers; }
     terminate() { this.stopped = true; }
   }
   const create = new Function("Worker", "OffscreenCanvas", "URL", "Blob", "JPEG_WORKER_SRC",
@@ -72,4 +72,16 @@ test("asynchronous step timeout and rejection preserve step/frame, never retry o
   assert.equal(calls, 1);
   await assert.rejects(step(() => Promise.reject(new Error("exact mask unavailable")), "frame-assets", 2861, 1000), /EXPORT_FRAME 2861 frame-assets: exact mask unavailable/);
   assert.equal(await step(() => Promise.resolve("actual"), "video-seek", 2862, 1000), "actual");
+});
+
+test("pixel transport transfers the exact CPU buffer/view and rejects incomplete snapshots", async t => {
+  const { value, workers } = pool(t);
+  await assert.rejects(value.encodePixels(new Uint8Array(15), 2, 2, .95, 1), /invalid pixel snapshot/);
+  assert.equal(workers[0].messages.length, 0);
+  const buffer = new ArrayBuffer(20), data = new Uint8Array(buffer, 4, 16).fill(7);
+  const pending = value.encodePixels(data, 2, 2, .95, 2905), message = workers[0].messages[0];
+  assert.equal(message.data, data); assert.equal(message.data.byteOffset, 4);
+  assert.deepEqual(workers[0].transfers, [buffer]);
+  workers[0].onmessage({ data: { id: message.id, buf: Uint8Array.of(7).buffer } });
+  assert.equal(new Uint8Array(await pending)[0], 7);
 });

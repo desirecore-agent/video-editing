@@ -16795,24 +16795,11 @@ function exportSourceCanvas() {
   exportCropCtx.drawImage(els.preview, ef.x, ef.y, ef.w, ef.h, 0, 0, ef.w, ef.h);
   return exportCropCanvas;
 }
-let exportSnapOff = null, exportSnapCtx = null;
-/** Synchronous snapshot so the compositor can draw the next frame immediately.
- *  JPEG encode runs off-thread from the ImageBitmap. */
+/** Pin CPU pixels synchronously before the compositor advances. A transferred
+ *  GPU-backed ImageBitmap can become unreadable later, even on a CPU canvas. */
 function snapshotExportFrame() {
   const src = exportSourceCanvas();
-  try {
-    if (typeof OffscreenCanvas === "function") {
-      if (!exportSnapOff || exportSnapOff.width !== src.width || exportSnapOff.height !== src.height) {
-        exportSnapOff = new OffscreenCanvas(src.width, src.height);
-        exportSnapCtx = exportSnapOff.getContext("2d", { alpha: false });
-      }
-      exportSnapCtx.drawImage(src, 0, 0);
-      if (typeof exportSnapOff.transferToImageBitmap === "function")
-        return { kind: "bmp", bmp: exportSnapOff.transferToImageBitmap() };
-    }
-    const img = src.getContext("2d").getImageData(0, 0, src.width, src.height);
-    return { kind: "rgba", data: img.data, w: src.width, h: src.height };
-  } catch (e) { throw canvasTaintError(e); }
+  return { kind: "rgba", data: snapshotExportRgba(), w: src.width, h: src.height };
 }
 let exportRgbaOff = null, exportRgbaCtx = null;
 /** Raw RGBA of the frame, for outputs that keep more than JPEG's 4:2:0 8-bit
@@ -16831,38 +16818,44 @@ function snapshotExportRgba() {
   } catch (e) { throw canvasTaintError(e); }
 }
 const JPEG_WORKER_SRC = `"use strict";
-let canvas = null, context = null, cpuReadback = false;
+let canvas = null, context = null, cpuReadback = false, recoveredReadback = false;
 let pending = Promise.resolve();
 function releaseCanvas() {
   if (canvas) { canvas.width = 0; canvas.height = 0; }
   canvas = null; context = null;
 }
-async function encodeBitmap(bmp, quality) {
-  if (!canvas || canvas.width !== bmp.width || canvas.height !== bmp.height) {
+async function encodeSnapshot(bmp, data, width, height, quality) {
+  const w = bmp ? bmp.width : width, h = bmp ? bmp.height : height;
+  if (data && !cpuReadback) { releaseCanvas(); cpuReadback = true; }
+  if (!canvas || canvas.width !== w || canvas.height !== h) {
     releaseCanvas();
-    canvas = new OffscreenCanvas(bmp.width, bmp.height);
+    canvas = new OffscreenCanvas(w, h);
     context = canvas.getContext("2d", { alpha: false, willReadFrequently: cpuReadback });
     if (!context) throw new Error("JPEG readback context unavailable");
   }
-  context.drawImage(bmp, 0, 0);
+  if (data) {
+    if (data.byteLength !== w * h * 4) throw new Error("invalid JPEG pixel snapshot");
+    context.putImageData(new ImageData(new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), w, h), 0, 0);
+  } else context.drawImage(bmp, 0, 0);
   const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: quality || 0.92 });
   return blob.arrayBuffer();
 }
 // Keep one backing store per worker and finish its readback before drawing another frame.
 self.onmessage = (e) => {
   pending = pending.then(async () => {
-    const { id, bmp, quality } = e.data;
+    const { id, bmp, data, width, height, quality } = e.data;
     let readbackRecovery = false;
     try {
       let buf;
-      try { buf = await encodeBitmap(bmp, quality); }
+      try { buf = await encodeSnapshot(bmp, data, width, height, quality); }
       catch (err) {
         // Re-encode this exact retained snapshot once. Never seek, redraw or skip a frame.
-        if (err?.name !== "EncodingError" || cpuReadback) throw err;
+        if (err?.name !== "EncodingError" || recoveredReadback) throw err;
         releaseCanvas();
         cpuReadback = true;
+        recoveredReadback = true;
         readbackRecovery = true;
-        buf = await encodeBitmap(bmp, quality);
+        buf = await encodeSnapshot(bmp, data, width, height, quality);
       }
       self.postMessage({ id, buf, ...(readbackRecovery ? { readbackRecovery: true } : {}) }, [buf]);
     } catch (err) {
@@ -16870,7 +16863,7 @@ self.onmessage = (e) => {
       self.postMessage({ id, error: message + (readbackRecovery ? " (same-frame CPU readback recovery failed)" : ""),
         ...(readbackRecovery ? { readbackRecovery: true } : {}) });
     } finally {
-      try { bmp.close(); } catch {}
+      if (bmp) try { bmp.close(); } catch {}
     }
   });
 };
@@ -16918,26 +16911,32 @@ function createJpegWorkers(n, timeoutMs = 30_000) {
     w.onerror = (event) => failWorker(w, "worker failed: " + String(event?.message || "unknown worker error").slice(0, 300));
     w.onmessageerror = () => failWorker(w, "worker response could not be decoded");
   }
-  return {
-    encode(bmp, quality, frame) {
+  function postFrame(payload, transfers, frame) {
       const id = nextId++;
       const w = workers[rr++ % workers.length];
       return new Promise((resolve, reject) => {
         if (failed.has(w)) {
-          try { bmp.close(); } catch {}
+          if (payload.bmp) try { payload.bmp.close(); } catch {}
           reject(new Error("JPEG frame " + frame + ": worker is unavailable"));
           return;
         }
         const rec = { resolve, reject, worker: w, frame: Number.isInteger(frame) ? frame : id };
         rec.timer = setTimeout(() => failWorker(w, "worker did not return a frame within " + timeoutMs + "ms"), timeoutMs);
         pending.set(id, rec);
-        try { w.postMessage({ id, bmp, quality }, [bmp]); }
+        try { w.postMessage({ id, ...payload }, transfers); }
         catch (e) {
           pending.delete(id); clearTimeout(rec.timer);
-          try { bmp.close(); } catch {}
+          if (payload.bmp) try { payload.bmp.close(); } catch {}
           reject(new Error("JPEG frame " + rec.frame + ": " + String(e.message || e)));
         }
       });
+  }
+  return {
+    encode(bmp, quality, frame) { return postFrame({ bmp, quality }, [bmp], frame); },
+    encodePixels(data, width, height, quality, frame) {
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 || data?.byteLength !== width * height * 4)
+        return Promise.reject(new Error("JPEG frame " + frame + ": invalid pixel snapshot"));
+      return postFrame({ data, width, height, quality }, [data.buffer], frame);
     },
     readbackRecoveries() { return readbackRecoveries.map(item => ({ ...item })); },
     terminate() {
@@ -16966,6 +16965,19 @@ function jpegFromBitmap(bmp, quality) {
       rej(canvasTaintError(e));
     }
   });
+}
+/** Workerless CPU fallback: each bounded in-flight frame owns its canvas. */
+function jpegFromPixels(data, width, height, quality) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const release = () => { canvas.width = 0; canvas.height = 0; };
+  try {
+    canvas.getContext("2d", { alpha: false, willReadFrequently: true })
+      .putImageData(new ImageData(new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), width, height), 0, 0);
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(blob => blob ? blob.arrayBuffer().then(resolve, reject) : reject(new Error("frame encode failed")), "image/jpeg", quality);
+    }).finally(release);
+  } catch (error) { release(); return Promise.reject(canvasTaintError(error)); }
 }
 /** Bound asynchronous frame work below the owner's stall limit, preserving the
  *  exact frame and step on failure. Late settlement is observed, never retried. */
@@ -17954,24 +17966,17 @@ async function fastExport(opts = {}) {
       await awaitExportStep(() => seekVideosTo(t, { queueBusy }), "video-seek", f);
       await awaitExportStep(() => prepareFrameAssets(t), "frame-assets", f);
       drawFrame(t);
-      const snap = rgba ? { kind: "raw", px: snapshotExportRgba() } : snapshotExportFrame();
+      let snap;
+      try { snap = rgba ? { kind: "raw", px: snapshotExportRgba() } : snapshotExportFrame(); }
+      catch (error) { throw new Error("EXPORT_FRAME " + f + " snapshot: " + String(error?.message || error)); }
       pixelsInflight++;
       let jpegP;
       if (snap.kind === "raw") jpegP = Promise.resolve(snap.px);
       else if (snap.kind === "bmp") {
         jpegP = workers ? workers.encode(snap.bmp, jpegQ, f) : jpegFromBitmap(snap.bmp, jpegQ);
       } else {
-        const c = document.createElement("canvas");
-        c.width = snap.w; c.height = snap.h;
-        c.getContext("2d", { alpha: false }).putImageData(new ImageData(snap.data, snap.w, snap.h), 0, 0);
-        jpegP = new Promise((res, rej) => {
-          try {
-            c.toBlob((b) => {
-              if (!b) return rej(new Error("frame encode failed"));
-              b.arrayBuffer().then(res, rej);
-            }, "image/jpeg", jpegQ);
-          } catch (e) { rej(canvasTaintError(e)); }
-        });
+        jpegP = workers ? workers.encodePixels(snap.data, snap.w, snap.h, jpegQ, f)
+          : jpegFromPixels(snap.data, snap.w, snap.h, jpegQ);
       }
       // A later worker can fail before the ordered chain reaches it. Observe it
       // immediately so backpressure exits and no rejection is silently orphaned.
