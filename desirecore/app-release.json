@@ -45,14 +45,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "1b0a3e4e52c05e5a637972945e5d1f0c24ad9b27fb9e6d57266c0a5e05e202ec",
-      "size": 8075,
+      "sha256": "551ed101578e960a0f0a1fcce850d5e3b45893ee7ef7ae89af09b9bed1408fa6",
+      "size": 8480,
       "role": "documentation"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "399b74b1d9ac67dbf1ea649e011697941ccb84878992def3e773c44146745656",
-      "size": 6868,
+      "sha256": "c474b62bf8c23aba80dcf1b86339ffedb72e1a8316acddcc4acad9db1e75f6ad",
+      "size": 7212,
       "role": "documentation"
     },
     {
@@ -63,8 +63,8 @@
     },
     {
       "path": "app.js",
-      "sha256": "507f0aad3f0851ac57f40685a6eeeb929d4411bbfd5dcd77bb2d73127835073c",
-      "size": 1049875,
+      "sha256": "5870197bd0aa7c90a11d92ceac6536b685d4b869df91bc4295762ccb898613bc",
+      "size": 1051327,
       "role": "runtime"
     },
     {
@@ -219,8 +219,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "aba1a48c4031e461301fe606028d3f2bed0b24439ea7b92a0e1f67c5de2fd24b",
-      "size": 190757,
+      "sha256": "54beb8dd813430f9cce54b258c7d372670263257f0e624c571e9c13fced608ba",
+      "size": 192101,
       "role": "documentation"
     },
     {
@@ -838,7 +838,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "a22fed57ee2495917e40e3647ed2350f2da9d9d0f9ff5903358ce57fc8aa7ec9"
+    "sha256": "a5923218d63d0a04ff34f5e18543a371093da665952384276ae6878db39a0c4b"
   },
   "supportedPlatforms": [
     "darwin",
@@ -871,5 +871,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "113d13f76d26fe1f51832ddfea5439ebb1bb80ffca157b580da80ce7ded1225b"
+  "releaseDigest": "cfb05a169f5c0202c58c9e6fc988a70025203021a858912526bd339345a816d7"
 }

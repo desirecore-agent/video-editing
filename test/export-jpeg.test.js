@@ -11,7 +11,7 @@ const workerEnd = app.indexOf("\n`;", workerStart);
 assert(workerStart > 0 && workerEnd > workerStart);
 const workerSource = app.slice(workerStart, workerEnd);
 
-function worker() {
+function worker({ gpuFailures = [], cpuFailures = [], securityFailures = [] } = {}) {
   const canvases = [], messages = [];
   let complete;
   const done = new Promise(resolve => { complete = resolve; });
@@ -24,13 +24,23 @@ function worker() {
       // Model a native backing-store budget without allocating video pixels.
       if (canvases.length > 4) throw new Error("native canvas backing store exhausted");
     }
-    getContext() {
-      return { drawImage: bitmap => { this.frameId = bitmap.id; this.fail = bitmap.fail; } };
+    getContext(_type, options) {
+      this.cpuReadback = options?.willReadFrequently === true;
+      return { drawImage: bitmap => {
+        if (bitmap.closed) throw new Error("cannot draw a closed bitmap");
+        this.frameId = bitmap.id; this.fail = bitmap.fail;
+      } };
     }
     async convertToBlob() {
       // A readback can settle after the next worker message arrives.
       await new Promise(resolve => setImmediate(resolve));
       if (this.fail) throw new Error("readback failed");
+      if (securityFailures.includes(this.frameId)) {
+        const error = new Error("origin is not clean"); error.name = "SecurityError"; throw error;
+      }
+      if ((this.cpuReadback ? cpuFailures : gpuFailures).includes(this.frameId)) {
+        const error = new Error("Encoding of the source image has failed."); error.name = "EncodingError"; throw error;
+      }
       const frameId = this.frameId;
       return { arrayBuffer: async () => Uint32Array.of(frameId).buffer };
     }
@@ -50,7 +60,7 @@ function worker() {
 }
 
 const bitmap = (id, fail = false) => ({ id, fail, width: 2160, height: 3840,
-  closed: false, close() { this.closed = true; } });
+  closed: false, closeCount: 0, close() { this.closed = true; this.closeCount++; } });
 
 test("JPEG worker keeps native canvas usage bounded across a long sequence", { timeout: 3000 }, async () => {
   const encoder = worker();
@@ -68,6 +78,38 @@ test("JPEG worker reports a failed frame and continues with the next queued fram
   const outputs = await encoder.send(frames);
   assert.match(outputs[0].error, /readback failed/);
   assert.equal(new Uint32Array(outputs[1].buf)[0], 2);
+  assert(frames.every(frame => frame.closed));
+});
+
+test("EncodingError recovers the same retained frame once, then uses bounded CPU readback", { timeout: 3000 }, async () => {
+  const encoder = worker({ gpuFailures: [1, 2] });
+  const frames = [bitmap(1), bitmap(2), bitmap(3)];
+  const outputs = await encoder.send(frames);
+  assert(outputs.every(output => !output.error));
+  for (const output of outputs) assert.equal(new Uint32Array(output.buf)[0], output.id, "no substituted or reordered frame");
+  assert.equal(outputs.filter(output => output.readbackRecovery).length, 1);
+  assert.equal(encoder.canvases.length, 2, "one failed GPU store and one reused CPU store");
+  assert.equal(encoder.canvases[0].width, 0, "retire the failed backing store");
+  assert(frames.every(frame => frame.closeCount === 1), "each retained bitmap closes exactly once");
+});
+
+test("a second EncodingError fails the frame without an unbounded retry", { timeout: 3000 }, async () => {
+  const encoder = worker({ gpuFailures: [1], cpuFailures: [1] });
+  const frames = [bitmap(1), bitmap(2)];
+  const outputs = await encoder.send(frames);
+  assert.match(outputs[0].error, /Encoding of the source image has failed/);
+  assert.equal(new Uint32Array(outputs[1].buf)[0], 2);
+  assert.equal(encoder.canvases.length, 2);
+  assert(frames.every(frame => frame.closeCount === 1));
+});
+
+test("origin-clean failures remain failures and never select a readback workaround", { timeout: 3000 }, async () => {
+  const encoder = worker({ securityFailures: [1] });
+  const frames = [bitmap(1), bitmap(2)];
+  const outputs = await encoder.send(frames);
+  assert.match(outputs[0].error, /origin is not clean/);
+  assert.equal(new Uint32Array(outputs[1].buf)[0], 2);
+  assert.equal(encoder.canvases.length, 1);
   assert(frames.every(frame => frame.closed));
 });
 

@@ -2834,6 +2834,28 @@ client can still impose its own deadline. Restart preserves an unfinished origin
 automatic continuation or an original-ID retry. Persistent snapshots and
 completed files remain retained facts, separate from temporary encoder paths.
 
+JPEG workers keep their `ImageBitmap` until encoding finishes. On a worker's
+first `EncodingError`, the failed canvas is released and the same retained
+snapshot is encoded once on a CPU-readback canvas. That worker then reuses the
+CPU canvas. This does not seek again, redraw the compositor, skip a frame or
+restart a job. A failed recovery or another error still fails the original job.
+Delivery-mode success receipts record actual recovered zero-based frame indices
+as `result.diagnostics.jpegReadbackRecoveries` entries
+`{frame, reason:"EncodingError", readback:"cpu"}`. Verify those frames and their
+neighbours in the actual output; a JPEG alone does not prove scene correctness.
+
+The explicit native fixture below runs the production snapshot and JPEG worker
+code against bounded 2160×3840 pixels in a separately owned browser. It does not
+start an editor server or certify a full export. Use an already prepared runtime
+and a new observation directory. The injected variant deliberately fails the
+first encode in each worker, then checks decoded frame-identity pixels; it is
+not evidence that a naturally occurring driver failure was reproduced.
+
+```sh
+node --test test/export-jpeg.test.js
+node .github/scripts/jpeg-readback-smoke.mjs --data-dir /owned/prepared-data --out /new/observation-dir --frames 3105 --inject one-per-worker
+```
+
 The service exclusively owns each background browser's DevTools pipe. Closing
 that pipe, including the OS closing it when the service is killed, invokes the
 browser's own shutdown callback in the pinned Chromium source. Normal job

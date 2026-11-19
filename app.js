@@ -16831,27 +16831,46 @@ function snapshotExportRgba() {
   } catch (e) { throw canvasTaintError(e); }
 }
 const JPEG_WORKER_SRC = `"use strict";
-let canvas = null;
+let canvas = null, context = null, cpuReadback = false;
 let pending = Promise.resolve();
+function releaseCanvas() {
+  if (canvas) { canvas.width = 0; canvas.height = 0; }
+  canvas = null; context = null;
+}
+async function encodeBitmap(bmp, quality) {
+  if (!canvas || canvas.width !== bmp.width || canvas.height !== bmp.height) {
+    releaseCanvas();
+    canvas = new OffscreenCanvas(bmp.width, bmp.height);
+    context = canvas.getContext("2d", { alpha: false, willReadFrequently: cpuReadback });
+    if (!context) throw new Error("JPEG readback context unavailable");
+  }
+  context.drawImage(bmp, 0, 0);
+  const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: quality || 0.92 });
+  return blob.arrayBuffer();
+}
 // Keep one backing store per worker and finish its readback before drawing another frame.
 self.onmessage = (e) => {
   pending = pending.then(async () => {
     const { id, bmp, quality } = e.data;
+    let readbackRecovery = false;
     try {
-      if (!canvas) canvas = new OffscreenCanvas(bmp.width, bmp.height);
-      if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
-        canvas.width = bmp.width;
-        canvas.height = bmp.height;
+      let buf;
+      try { buf = await encodeBitmap(bmp, quality); }
+      catch (err) {
+        // Re-encode this exact retained snapshot once. Never seek, redraw or skip a frame.
+        if (err?.name !== "EncodingError" || cpuReadback) throw err;
+        releaseCanvas();
+        cpuReadback = true;
+        readbackRecovery = true;
+        buf = await encodeBitmap(bmp, quality);
       }
-      const ctx = canvas.getContext("2d", { alpha: false });
-      ctx.drawImage(bmp, 0, 0);
-      bmp.close();
-      const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: quality || 0.92 });
-      const buf = await blob.arrayBuffer();
-      self.postMessage({ id, buf }, [buf]);
+      self.postMessage({ id, buf, ...(readbackRecovery ? { readbackRecovery: true } : {}) }, [buf]);
     } catch (err) {
+      const message = String(err && err.message || err);
+      self.postMessage({ id, error: message + (readbackRecovery ? " (same-frame CPU readback recovery failed)" : ""),
+        ...(readbackRecovery ? { readbackRecovery: true } : {}) });
+    } finally {
       try { bmp.close(); } catch {}
-      self.postMessage({ id, error: String(err && err.message || err) });
     }
   });
 };
@@ -16871,27 +16890,30 @@ function createJpegWorkers(n) {
   }
   URL.revokeObjectURL(url);
   const pending = new Map();
+  const readbackRecoveries = [];
   let nextId = 0, rr = 0;
   for (const w of workers) {
     w.onmessage = (e) => {
       const rec = pending.get(e.data.id);
       if (!rec) return;
       pending.delete(e.data.id);
-      if (e.data.error) rec.reject(new Error(e.data.error));
+      if (e.data.readbackRecovery) readbackRecoveries.push({ frame: rec.frame, reason: "EncodingError", readback: "cpu" });
+      if (e.data.error) rec.reject(new Error("JPEG frame " + rec.frame + ": " + e.data.error));
       else rec.resolve(e.data.buf);
     };
     w.onerror = () => {};
   }
   return {
-    encode(bmp, quality) {
+    encode(bmp, quality, frame) {
       const id = nextId++;
       const w = workers[rr++ % workers.length];
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
+        pending.set(id, { resolve, reject, frame: Number.isInteger(frame) ? frame : id });
         try { w.postMessage({ id, bmp, quality }, [bmp]); }
         catch (e) { pending.delete(id); reject(e); }
       });
     },
+    readbackRecoveries() { return readbackRecoveries.map(item => ({ ...item })); },
     terminate() {
       for (const rec of pending.values()) rec.reject(new Error("cancelled"));
       pending.clear();
@@ -17901,7 +17923,7 @@ async function fastExport(opts = {}) {
       let jpegP;
       if (snap.kind === "raw") jpegP = Promise.resolve(snap.px);
       else if (snap.kind === "bmp") {
-        jpegP = workers ? workers.encode(snap.bmp, jpegQ) : jpegFromBitmap(snap.bmp, jpegQ);
+        jpegP = workers ? workers.encode(snap.bmp, jpegQ, f) : jpegFromBitmap(snap.bmp, jpegQ);
       } else {
         const c = document.createElement("canvas");
         c.width = snap.w; c.height = snap.h;
@@ -17939,9 +17961,12 @@ async function fastExport(opts = {}) {
     const end = await fetch("/api/export/end?id=" + sessId, { method: "POST", signal }).then((r) => r.json());
     if (!end.src) throw new Error(end.error || "encode failed");
     const outs = end.outputs || [{ file: decodeURIComponent(end.src.split("/").pop()), ok: true, src: end.src }];
+    const readbackRecoveries = workers?.readbackRecoveries() || [];
     // what each output was asked to be, beside what came out
-    result = { outputs: outs.map((o, i) => ({ ...o, ...(begin.outputs && begin.outputs[i] ? { summary: begin.outputs[i].summary, notes: begin.outputs[i].notes } : {}) })) };
-    if (job) await reportExportJob(job, { status: "done", src: end.src, ...(delivery ? { result: { summary: begin.summary, notes: begin.notes || [], outputs: result.outputs } } : {}) }, true);
+    result = { outputs: outs.map((o, i) => ({ ...o, ...(begin.outputs && begin.outputs[i] ? { summary: begin.outputs[i].summary, notes: begin.outputs[i].notes } : {}) })),
+      ...(readbackRecoveries.length ? { diagnostics: { jpegReadbackRecoveries: readbackRecoveries } } : {}) };
+    if (job) await reportExportJob(job, { status: "done", src: end.src, ...(delivery ? { result: { summary: begin.summary, notes: begin.notes || [], outputs: result.outputs,
+      ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}) } } : {}) }, true);
     else if (opts.silent) { /* the queue lists the files */ }
     else if (delivery && result.outputs[0]) {
       const o = result.outputs[0];
