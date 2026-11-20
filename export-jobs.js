@@ -44,6 +44,17 @@ function findBrowser(env = process.env) {
   return candidates.find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }) || null;
 }
 
+/** Only these nonnegative integer counters may enter an original job receipt
+ * or MCP summary. Never persist arbitrary page objects, media IDs or paths. */
+function frameResourceCounters(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(["frame", "pixelsInflight", "uploadsInflight", "jpegWorkerEnabled",
+    "decoders", "decoderQueuedChunks", "decoderQueuedFrames", "decoderHeldFrames",
+    "decodedVideoClips", "htmlVideoElements", "audioBufferEntries"]
+    .filter(key => Number.isSafeInteger(value[key]) && value[key] >= 0)
+    .map(key => [key, value[key]]));
+}
+
 /** opts: {url(id) → page to open headless, broadcast(event, data), editors() → open tab count,
  *  keepProfile(kind) → a browser profile dir that outlives the job (a model cache), or null for a throwaway one} */
 function createExportJobs(opts) {
@@ -236,7 +247,7 @@ function createExportJobs(opts) {
   function end(j, status, fields = {}) {
     if (isEnded(j)) return;
     if (status !== "done" && j.browser?.diagnostics)
-      j.diagnostics = { browser: j.browser.diagnostics() };
+      j.diagnostics = { ...j.diagnostics, browser: j.browser.diagnostics() };
     Object.assign(j, fields, { status, updated: Date.now() });
     persist(j);
     closeBrowser(j);
@@ -346,12 +357,21 @@ function createExportJobs(opts) {
       return true;
     },
     /** Progress / result from the running tab. Returns {cancel} so a cancel reaches it. */
-    report(id, { progress, status, src, result, error } = {}) {
+    report(id, { progress, status, src, result, error, frameResources } = {}) {
       const j = jobs.get(id);
       if (!j) return null;
       if (j.status === "cancelled") return { cancel: true };
       if (j.status !== "running") return { cancel: false };
       j.updated = Date.now();
+      const last = frameResourceCounters(frameResources);
+      if (Object.keys(last).length) {
+        const previous = j.diagnostics?.frameResources, peak = frameResourceCounters(previous?.peak);
+        for (const [key, value] of Object.entries(last)) peak[key] = Math.max(peak[key] || 0, value);
+        const count = Number.isSafeInteger(previous?.sampleCount) && previous.sampleCount >= 0 ? previous.sampleCount : 0;
+        j.diagnostics = { ...j.diagnostics, frameResources: {
+          schemaVersion: 1, sampleCount: Math.min(Number.MAX_SAFE_INTEGER, count + 1), last, peak,
+        } };
+      }
       if (Number.isFinite(progress)) j.progress = Math.max(0, Math.min(1, progress));
       if (status === "done") end(j, "done", { progress: 1, src: String(src || ""), result: result && typeof result === "object" ? result : null });
       else if (status === "failed") end(j, "failed", { error: String(error || "export failed") });
@@ -372,4 +392,4 @@ function createExportJobs(opts) {
   };
 }
 
-module.exports = { createExportJobs, findBrowser };
+module.exports = { createExportJobs, findBrowser, frameResourceCounters };

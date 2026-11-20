@@ -2898,6 +2898,18 @@ blocked browser thread; a generic stall alone does not establish a crash, GPU
 failure or memory exhaustion. Keep the original failed job and inspect actual
 step/frame evidence before an explicit new attempt.
 
+The original export heartbeat also records `diagnostics.frameResources` at
+most once per second: its latest numeric counters, per-counter peaks and sample
+count. These report the actual WebCodecs source/queued/held-frame counts,
+decoded clips, owned HTML video elements, JPEG-worker selection, pixel/upload
+queues and audio-buffer cache entries, with the completed one-based frame
+count. They retain no frames, media paths, IDs or arbitrary page data. The
+receipt remains bounded regardless of movie length, survives the original
+terminal result/restart, and appears in `fablecut_export` status replies.
+These counters are neither memory measurements nor a diagnosis; a nonzero
+HTML-element count alone does not prove that the current picture used that
+element. Sampling does not release resources, force GC or choose a retry.
+
 The existing exclusive DevTools pipe also observes Chromium's
 `Target.targetCrashed`. A matching job page crash ends that original job with
 the reported termination status/error code, even if the browser root remains

@@ -18021,7 +18021,8 @@ async function fastExport(opts = {}) {
       els.exportProgress.style.width = pct.toFixed(1) + "%";
       els.exportTitle.textContent = `Rendering… ${pct.toFixed(0)}%`;
       if (opts.onProgress) opts.onProgress(0.97 * (f + 1) / frames);
-      if (job) reportExportJob(job, { progress: 0.97 * (f + 1) / frames });
+      if (job) reportExportJob(job, { progress: 0.97 * (f + 1) / frames }, false,
+        () => exportFrameResources(f + 1, pixelsInflight, up.inFlight(), workers));
     }
     await awaitExportStep(() => pixelChain, "jpeg-drain", frames - 1);
     if (uploadError) throw uploadError;
@@ -18266,10 +18267,30 @@ function onBatchListClick(e) {
    and profile and reports back. A cancel from the agent arrives as the reply
    to a progress report. */
 let exportJobReportAt = 0;
-async function reportExportJob(id, body, force = false) {
+/** Counts from this job's actual selected path, not a memory estimate or cause.
+ * No frame, element, source path or decoded buffer is retained in the receipt. */
+function exportFrameResources(frame, pixelsInflight, uploadsInflight, workers) {
+  let decoders = 0, decoderQueuedChunks = 0, decoderQueuedFrames = 0, decoderHeldFrames = 0;
+  for (const src of runtime.exportDecode?.sources.values() || []) {
+    if (!src) continue;
+    decoders++;
+    decoderQueuedChunks += src.dec?.decodeQueueSize || 0;
+    decoderQueuedFrames += src.out?.length || 0;
+    if (src.cur) decoderHeldFrames++;
+  }
+  let htmlVideoElements = 0;
+  for (const el of runtime.clipEls.values()) if (el.tagName === "VIDEO") htmlVideoElements++;
+  return { frame, pixelsInflight, uploadsInflight, jpegWorkerEnabled: workers ? 1 : 0,
+    decoders, decoderQueuedChunks, decoderQueuedFrames, decoderHeldFrames,
+    decodedVideoClips: runtime.exportFrames?.size || 0, htmlVideoElements,
+    audioBufferEntries: runtime.audioBufs.size };
+}
+async function reportExportJob(id, body, force = false, resourceSample) {
   const now = performance.now();
   if (!force && now - exportJobReportAt < 1000) return; // a heartbeat, not a stream
   exportJobReportAt = now;
+  // Observation failure cannot suppress progress or cancellation delivery.
+  if (resourceSample) try { body = { ...body, frameResources: resourceSample() }; } catch { }
   try {
     const r = await fetch("/api/export/job/report?id=" + encodeURIComponent(id), {
       method: "POST", body: JSON.stringify(body),

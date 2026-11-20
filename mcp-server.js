@@ -19,6 +19,7 @@ const http = require("http");
 const { spawn, spawnSync } = require("./native-process");
 const { spawn: spawnOwner } = require("child_process");
 const { loadEncodeProfiles, listProfilesPublic, resolveProfile, profileSummary } = require("./encode-profiles");
+const { frameResourceCounters } = require("./export-jobs");
 
 const {
   APP_DIR, DATA_DIR, MEDIA_DIR, EXPORTS_DIR, ANALYSIS_DIR, LIBRARY_DIR, PROJECT_FILE, PROXIES_DIR, ensureDirs, readSaved, writeSaved,
@@ -1242,6 +1243,16 @@ function describeExportJobSummary(j) {
  * results. A status query neither diagnoses a cause nor chooses a retry. */
 function describeExportJob(j) {
   let text = describeExportJobSummary(j);
+  const resources = j.diagnostics?.frameResources;
+  if (resources && typeof resources === "object") {
+    const last = frameResourceCounters(resources.last), peak = frameResourceCounters(resources.peak);
+    if (Object.keys(last).length || Object.keys(peak).length)
+      text += "\nOriginal compositor counters (not memory/cause): " + JSON.stringify({
+        schemaVersion: 1,
+        sampleCount: Number.isSafeInteger(resources.sampleCount) && resources.sampleCount >= 0 ? resources.sampleCount : 0,
+        last, peak,
+      });
+  }
   if (["failed", "cancelled", "interrupted"].includes(j.status) && j.diagnostics?.browser) {
     const b = j.diagnostics.browser, tail = typeof b.stderrTail === "string" ? b.stderrTail : "";
     const facts = { pid: b.pid ?? null, discovery: b.discovery,

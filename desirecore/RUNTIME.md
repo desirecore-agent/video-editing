@@ -74,6 +74,8 @@ GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 
 
 原可选 Whisper ASR、MediaPipe、Google Fonts 仍可连接其上游外部资源，模型和动态网络资源不在本原生资产清单内；没有默认收费生成或隐含 Provider。旧 WebCodecs/MediaRecorder UI 实时输出未满足固定输入合同，明确不可用。
 
+原 job 的导出心跳每秒最多一次记录 `diagnostics.frameResources`：只保留最新数字、各项峰值和总采样次数，不随片长积累历史。计数包括已完成帧数（从1开始）、WebCodecs源与排队/持有帧、当前decoded clip数、原job的HTML视频元素数、JPEG worker是否启用、像素/上传队列和音频buffer缓存条目。白名单拒绝路径、媒体ID、任意页面对象和无效数字；原失败/成功/取消和重启均保留，MCP状态查询可见。计数不是内存大小或原因判断，存在HTML元素也不证明当前帧用了它；采样不释放资源、不强制GC、不重试或改变准入/终态。
+
 ## 接入交接与画面准入
 
 JPEG worker 的 error/messageerror 明确拒绝其未完成帧并停止该线程，不静默替换或重做帧；30秒没有 JPEG 返回时带零基帧号失败。异步视频 seek、素材准备、背压与排空在45秒内明确报告 `EXPORT_FRAME <帧号> <步骤>`，失败时终止未完成上传/等待，保留原 job。此边界早于 owner 的120秒失联上限，不能识别完全阻塞的浏览器主线程；只有“停止回报进度”不能证明浏览器崩溃、GPU或内存根因。先据实际步骤与帧调查，再明确新 retry，不自动重启整片。
