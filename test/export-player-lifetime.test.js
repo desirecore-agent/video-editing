@@ -51,3 +51,61 @@ test("export seeking releases a past clip player", async () => {
   assert.deepEqual(released, ["future"]);
   assert.equal(runtime.clipEls.size, 0);
 });
+
+function previewTick({ frozen, rendering = false, sourceMode = false }) {
+  const calls = { players: [], draws: 0, sourceSync: 0, sourceDraws: 0 };
+  const clips = Array.from({ length: 100 }, (_, i) => ({ id: "v" + i, kind: "video", start: i * 10, duration: 10 }));
+  const noop = () => {};
+  const env = {
+    compositorReadback: frozen,
+    state: { time: 0, pps: 10, playing: false, exporting: false, rendering, source: { playing: false } },
+    runtime: { clipGain: new Map() },
+    els: { timelineScroll: { scrollLeft: 0, clientWidth: 100 }, playhead: { style: {} } },
+    trState: { open: false }, projDur: () => 1000, playRate: () => 1, frameDue: () => true,
+    mediaClips: () => clips, clipRenders: () => true, mediaTimeAt: () => 0,
+    getClipEl(c) { calls.players.push(c.id); return { paused: true, currentTime: 0 }; },
+    muteClipChain: noop, activeAt: (c, t) => t >= c.start && t < c.start + c.duration,
+    isSourceMode: () => sourceMode,
+    syncSourceMedia() { calls.sourceSync++; }, drawSourceFrame() { calls.sourceDraws++; },
+    drawFrame() { calls.draws++; },
+    rebuildClips: noop, transcriptTick: noop, watchCaptions: noop, drawRuler: noop,
+    updateSafeOverlay: noop, updateKfGraphs: noop, syncInspectorPlayhead: noop, syncFxEditors: noop,
+    syncColorPlayhead: noop, updateTimecode: noop, updateMeterUI: noop, updateSourceScrub: noop,
+    idleAudio: noop, loopBusy: () => false, setTimeout: () => 0, requestAnimationFrame: noop,
+  };
+  const code = functionSource("function syncMedia()", "function seekMediaWhilePaused()") +
+    functionSource("function loop(ts)", "/* ═══════════════════════════ EXPORT") +
+    ";return loop;";
+  const loop = new Function(...Object.keys(env), "let lastTs=null,lastRulerKey='',playheadPx=0,loopSleep=0;const IDLE_MS=250,VIDEO_PREFETCH_SEC=.85;" + code)(...Object.values(env));
+  loop(1);
+  return calls;
+}
+
+test("a frozen job leaves all preview players and canvas drawing to its owner from the first tick", () => {
+  const calls = previewTick({ frozen: true });
+  assert.deepEqual(calls.players, [], "the real syncMedia path must not preload the whole future timeline before mixing");
+  assert.equal(calls.draws, 0);
+});
+
+test("a frozen job also fences the Source preview path", () => {
+  const calls = previewTick({ frozen: true, sourceMode: true });
+  assert.equal(calls.sourceSync, 0);
+  assert.equal(calls.sourceDraws, 0);
+});
+
+test("interactive timeline and Source ticks retain their existing preview behavior", () => {
+  const timeline = previewTick({ frozen: false });
+  assert.equal(timeline.players.length, 100);
+  assert.equal(timeline.draws, 1);
+  const source = previewTick({ frozen: false, sourceMode: true });
+  assert.equal(source.sourceSync, 1);
+  assert.equal(source.sourceDraws, 1);
+});
+
+test("the fast renderer still owns the canvas while rendering in either document", () => {
+  for (const frozen of [false, true]) {
+    const calls = previewTick({ frozen, rendering: true });
+    assert.deepEqual(calls.players, []);
+    assert.equal(calls.draws, 0);
+  }
+});

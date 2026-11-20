@@ -2856,6 +2856,10 @@ independent-worker memory. Sampling does not evaluate page JavaScript, force
 GC, change export choices/timeouts or establish an OOM/GPU/driver cause.
 
 Frozen export documents do not build interactive timeline waveform peaks.
+Their animation loop also leaves preview media synchronization and canvas drawing
+to the job from the first tick, including asynchronous audio preparation. It does
+not preload the future timeline through the interactive preview engine before
+the fast renderer starts. The interactive timeline and Source preview are unchanged.
 The offline mix prepares enabled media only when its clip overlaps the actual
 export window. An explicitly constant `volume:0` without volume keyframes
 keeps a silent mix/track of the requested length without decoding that source;

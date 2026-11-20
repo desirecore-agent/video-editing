@@ -16194,7 +16194,10 @@ function loop(ts) {
       sc.scrollLeft = Math.max(0, px - 60);
   }
   const draw = frameDue(ts);
-  if (!state.rendering) { // fast export owns media seeking + the canvas
+  // A frozen job owns media and pixels from its first tick, including the
+  // asynchronous load/mix preparation before state.rendering becomes true.
+  // Preview sync would otherwise preload every future clip in this document.
+  if (!state.rendering && !compositorReadback) {
     if (isSourceMode()) {
       syncSourceMedia();
       if (draw) drawSourceFrame();
