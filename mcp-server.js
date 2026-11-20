@@ -1253,7 +1253,7 @@ function describeExportJob(j) {
         last, peak,
       });
   }
-  if (["failed", "cancelled", "interrupted"].includes(j.status) && j.diagnostics?.browser) {
+  if (["done", "failed", "cancelled", "interrupted"].includes(j.status) && j.diagnostics?.browser) {
     const b = j.diagnostics.browser, tail = typeof b.stderrTail === "string" ? b.stderrTail : "";
     const facts = { pid: b.pid ?? null, discovery: b.discovery,
       targetCrashes: Array.isArray(b.targetCrashes) ? b.targetCrashes.slice(-8).map(c => ({
@@ -1271,6 +1271,20 @@ function describeExportJob(j) {
         stopReason: typeof m.stopReason === "string" ? m.stopReason.slice(0, 128) : null,
         sampleCount: Number.isSafeInteger(m.sampleCount) && m.sampleCount >= 0 ? m.sampleCount : 0,
         retainedSamples: samples.length, peak: numeric(m.peak), lastSample: numeric(samples.at(-1)),
+      };
+    }
+    if (b.nativeMemory && typeof b.nativeMemory === "object") {
+      const m = b.nativeMemory, types = ["browser", "renderer", "gpu", "other"];
+      const statuses = ["waiting", "observing", "sampled", "unavailable", "over_budget", "owner_closed"];
+      const numeric = value => Object.fromEntries(["pid", "residentBytes", "mallocBytes", "partitionBytes", "arrayBufferBytes", "imageCacheBytes", "blinkGcBytes", "v8Bytes"]
+        .filter(key => Number.isSafeInteger(value?.[key]) && value[key] >= 0).map(key => [key, value[key]]));
+      facts.nativeMemory = { status: statuses.includes(m.status) ? m.status : "unknown",
+        ...(Number.isSafeInteger(m.at) && m.at >= 0 ? { at: m.at } : {}),
+        ...(m.level === "light" ? { level: "light" } : {}),
+        ...(Number.isSafeInteger(m.traceBytesRead) && m.traceBytesRead >= 0 ? { traceBytesRead: m.traceBytesRead } : {}),
+        processes: (Array.isArray(m.processes) ? m.processes.slice(0, 16) : []).map(p => ({
+          ...numeric(p), type: types.includes(p?.type) ? p.type : "other",
+        })),
       };
     }
     text += "\nOriginal browser diagnostics: " + JSON.stringify(facts);

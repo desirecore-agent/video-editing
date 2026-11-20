@@ -246,8 +246,10 @@ function createExportJobs(opts) {
   }
   function end(j, status, fields = {}) {
     if (isEnded(j)) return;
-    if (status !== "done" && j.browser?.diagnostics)
+    // 成功也可能有资源异常；关闭 owner 前保留同一份事实，观测失败不改终态。
+    if (j.browser?.diagnostics) try {
       j.diagnostics = { ...j.diagnostics, browser: j.browser.diagnostics() };
+    } catch {}
     Object.assign(j, fields, { status, updated: Date.now() });
     persist(j);
     closeBrowser(j);

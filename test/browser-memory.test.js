@@ -81,6 +81,7 @@ test("one native allocator snapshot uses the owned pipe, bounded stream and no f
   assert.equal(command.sessionId, undefined); assert.equal(command.params.transferMode, "ReturnAsStream");
   f.reply({ id: command.id, result: {} }); await settle();
   command = f.commands.at(-1); assert.equal(command.method, "Tracing.requestMemoryDump"); assert.equal(command.params.deterministic, false);
+  assert.equal(command.params.levelOfDetail, "light");
   f.reply({ id: command.id, result: { success: true } }); await settle();
   command = f.commands.at(-1); assert.equal(command.method, "Tracing.end");
   f.reply({ method: "Tracing.tracingComplete", params: { stream: "owned-trace" } }); f.reply({ id: command.id, result: {} }); await settle();
@@ -131,13 +132,14 @@ test("allocator stream stops at its byte budget and still closes the owned strea
   f.reply({ method: "Tracing.tracingComplete", params: { stream: "bounded-trace" } });
   f.reply({ id: command.id, result: {} }); await settle();
   const data = " ".repeat(16 * 1024);
-  for (let n = 0; n <= 512; n++) {
+  for (let n = 0; n <= 4096; n++) {
     command = f.commands.at(-1); assert.equal(command.method, "IO.read");
     f.reply({ id: command.id, result: { data, eof: false } }); await settle();
   }
   command = f.commands.at(-1); assert.equal(command.method, "IO.close");
   f.reply({ id: command.id, result: {} }); await settle();
   assert.equal(f.diagnostics().nativeMemory.status, "over_budget");
+  assert.equal(f.diagnostics().nativeMemory.traceBytesRead, 64 * 1024 * 1024 + 16 * 1024);
   assert.equal(f.diagnostics().memory.sampleCount, 13);
   f.handle.close(); f.proc.exitCode = 0; f.proc.emit("close");
 });

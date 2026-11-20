@@ -30,10 +30,10 @@ test("frame facts count the actual decoder/HTML/worker queues without retaining 
   assert.equal(context.runtime.exportFrames.get("native"), held);
 });
 
-function ownedJobs(t) {
+function ownedJobs(t, diagnostics = () => ({ pid: 123, discovery: "enabled", targetCrashes: [] })) {
   const dir = makeDataDir(t, seedProject()), storeDir = path.join(dir, "export-facts");
   const jobs = createExportJobs({ storeDir, editors: () => 0, broadcast() {}, launchBrowser(j) {
-    j.browser = { close() {}, diagnostics: () => ({ pid: 123, discovery: "enabled", targetCrashes: [] }) };
+    j.browser = { close() {}, diagnostics };
   } });
   t.after(() => jobs.shutdown());
   const admitted = jobs.request({ where: "headless", range: "entire" });
@@ -63,6 +63,25 @@ test("original job keeps only latest/peak numeric facts across failure and resta
   assert.equal(restored.get(id).status, "failed");
   assert.equal(restored.get(id).error, "original failure");
   assert.deepEqual(restored.get(id).diagnostics.frameResources, running);
+});
+
+test("successful original jobs preserve native browser facts before close and after restart", t => {
+  const observed = { pid: 123, nativeMemory: { status: "sampled", processes: [{ pid: 456, type: "renderer", imageCacheBytes: 1024 }] } };
+  const { jobs, storeDir, id } = ownedJobs(t, () => observed);
+  jobs.report(id, { status: "done", src: "/exports/fixture-only.mp4" });
+  assert.deepEqual(jobs.get(id).diagnostics?.browser, observed);
+  const restored = createExportJobs({ storeDir, broadcast() {} }); t.after(() => restored.shutdown());
+  assert.equal(restored.get(id).status, "done");
+  assert.deepEqual(restored.get(id).diagnostics.browser, observed);
+});
+
+test("browser observation failure cannot prevent the original terminal result", t => {
+  for (const status of ["done", "failed"]) {
+    const { jobs, id } = ownedJobs(t, () => { throw new Error("observation unavailable"); });
+    jobs.report(id, { status, ...(status === "done" ? { src: "/exports/fixture-only.mp4" } : { error: "original encode failure" }) });
+    assert.equal(jobs.get(id).status, status);
+    if (status === "failed") assert.equal(jobs.get(id).error, "original encode failure");
+  }
 });
 
 test("invalid counters are omitted and terminal reports cannot rewrite original facts", t => {

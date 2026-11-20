@@ -62,9 +62,9 @@ GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 
 
 后台浏览器由本服务独占 `--remote-debugging-pipe` 的父侧 FD3/FD4，不将父侧管道传给其它子进程。固定 Chromium 156.0.8078.80 的[管道实现](https://chromium.googlesource.com/chromium/src/+/156.0.8078.80/content/browser/devtools/devtools_pipe_handler.cc)在 EOF/error 时调用断联回调；[headless shell](https://chromium.googlesource.com/chromium/src/+/156.0.8078.80/headless/lib/browser/headless_devtools.cc)将该回调绑定到浏览器 Shutdown，普通 Chrome 绑定到 CloseBrowserSoon。服务被强杀时由 OS 关闭管道，无需重启后根据旧 PID 查杀。正常 job 收尾先关闭输入管道，让浏览器自行关闭；3 秒未退出才向仍存活的原 ChildProcess 发 TERM，再等 2 秒才发 KILL，已退出即取消兜底。兜底不等于后代已确认收闭；真实 Chrome 与各 OS 的完整进程树仍须单独验收，纯 Node 管道回归不能代替。
 
-同一独占管道仅 attach 到 URL 精确匹配原 job 的主页面，每10秒读取一次 `Runtime.getHeapUsage` 数字；最多一个未回请求，30秒未回就停止观测。原浏览器失败回执保留最多32个样本、总次数及峰值，MCP摘要只显示最后样本/峰值和停止原因。数字按该页面所在 isolate 的合同解释，不是完整进程 RSS，也不覆盖独立 worker。采样不执行页面 JavaScript、不强制 GC、不重试导出或更改120秒失联门限；不支持/销毁/关闭/管道错误会明确停采样，保留已有事实。只靠 heap 或工作集数值仍不能认定 OOM、GPU或驱动根因。
+同一独占管道仅 attach 到 URL 精确匹配原 job 的主页面，每10秒读取一次 `Runtime.getHeapUsage` 数字；最多一个未回请求，30秒未回就停止观测。原浏览器全部终态回执保留最多32个样本、总次数及峰值，MCP摘要只显示最后样本/峰值和停止原因。数字按该页面所在 isolate 的合同解释，不是完整进程 RSS，也不覆盖独立 worker。采样不执行页面 JavaScript、不强制 GC、不重试导出或更改120秒失联门限；不支持/销毁/关闭/管道错误会明确停采样，保留已有事实。只靠 heap 或工作集数值仍不能认定 OOM、GPU或驱动根因。
 
-原生 export 的同一 owner 在第13个正常 heap 样本后，仅采一次详细 allocator 分布，记录于 `diagnostics.browser.nativeMemory`。它使用既有独占管道、`Tracing.requestMemoryDump` 的 `deterministic:false`，不触发强制GC或新调试端口；trace 分块读取每次16KiB、总量最多8MiB，处理后只留下最多16个进程的类型、RSS及固定 malloc/partition/array-buffer/image-cache/Blink/V8 字节数字。原始 trace、地址、路径和媒体均不进入回执。不支持、超限、超时或 owner 关闭只令观测不可用，不重试、不改变原导出/取消/终态；数字也不能单独证明某一根因。
+原生 export 的同一 owner 在第13个正常 heap 样本后，仅采一次 light 级 allocator 分布，记录于 `diagnostics.browser.nativeMemory`。它使用既有独占管道、`Tracing.requestMemoryDump` 的 `deterministic:false`，不触发强制GC或新调试端口；trace 分块读取每次16KiB、总量最多64MiB，处理后只留下最多16个进程的类型、RSS及固定 malloc/partition/array-buffer/image-cache/Blink/V8 字节数字。原始 trace、地址、路径和媒体均不进入回执。不支持、超限、超时或 owner 关闭只令观测不可用，不重试、不改变原导出/取消/终态；数字也不能单独证明某一根因。成功、失败、取消及重启均保留原始观测，MCP摘要只输出固定白名单的类型、时间和字节数；观测函数自身异常也不能阻止原终态保存。
 
 冻结导出文档不生成交互时间线波形。离线 mix 只准备实际导出区间内相交且启用的音视频输入；明确恒定 `volume:0` 且没有 volume 关键帧的片段保留相同时长的静音 mix/声轨，不解码原媒体。有 volume 自动化或未明确静音时仍走原解码，交互编辑页的波形、可听输入的路由/效果和响度合同保持。这样避免为波形或静音而读取整份大视频，但不能单凭资源节省认定长导出故障已解决。
 

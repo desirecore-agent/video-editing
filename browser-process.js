@@ -11,7 +11,7 @@ const CLOSE_GRACE_MS = 3000;
 const KILL_GRACE_MS = 2000;
 const PIPE_MESSAGE_BYTES = 64 * 1024;
 const STDERR_BYTES = 16 * 1024;
-const NATIVE_TRACE_BYTES = 8 * 1024 * 1024;
+const NATIVE_TRACE_BYTES = 64 * 1024 * 1024;
 
 /** 只留下固定 allocator 的数字，不把 trace 内的地址、路径或任意字段交给模型。 */
 function summarizeAllocatorTrace(text) {
@@ -102,14 +102,14 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
     };
     const captureNative = async () => {
       if (!native || native.status !== "waiting" || closing) return;
-      native.status = "observing";
+      native.status = "observing"; native.level = "light";
       let handle, traceStarted = false;
       try {
         await nativeCommand("Tracing.start", { transferMode: "ReturnAsStream", traceConfig: {
           recordMode: "recordAsMuchAsPossible", includedCategories: ["disabled-by-default-memory-infra"],
           excludedCategories: ["*"], memoryDumpConfig: { triggers: [] },
         } }); traceStarted = true;
-        const dump = await nativeCommand("Tracing.requestMemoryDump", { deterministic: false, levelOfDetail: "detailed" });
+        const dump = await nativeCommand("Tracing.requestMemoryDump", { deterministic: false, levelOfDetail: "light" });
         if (!dump.success) throw new Error("dump_unavailable");
         const ready = new Promise((resolve, reject) => {
           nativeStream = resolve; nativeStreamReject = reject;
@@ -120,12 +120,13 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
         for (;;) {
           const part = await nativeCommand("IO.read", { handle, size: 16 * 1024 });
           const chunk = Buffer.from(part.data, part.base64Encoded ? "base64" : "utf8");
-          size += chunk.length; if (size > NATIVE_TRACE_BYTES) throw new Error("trace_budget_exceeded");
+          size += chunk.length; native.traceBytesRead = size;
+          if (size > NATIVE_TRACE_BYTES) throw new Error("trace_budget_exceeded");
           chunks.push(chunk); if (part.eof) break;
         }
         const processes = summarizeAllocatorTrace(Buffer.concat(chunks).toString("utf8"));
         if (!processes.length) throw new Error("allocator_data_unavailable");
-        Object.assign(native, { status: "sampled", at: Date.now(), processes });
+        Object.assign(native, { status: "sampled", level: "light", at: Date.now(), processes });
       } catch (error) {
         if (!closing && !nativeStopped) native.status = error.message === "trace_budget_exceeded" ? "over_budget" : "unavailable";
       } finally {
