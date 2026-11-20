@@ -1945,6 +1945,10 @@ function getAudioBuffer(m) {
   return p;
 }
 function ensureWave(m) {
+  // The frozen export document has no interactive timeline waveform consumer.
+  // In particular, do not fetch a multi-GB muted picture just to draw peaks.
+  // renderAudioMix prepares the audio inputs actually needed by its window.
+  if (compositorReadback) return;
   // Also decode peaks from video files when their audio is placed on an A track
   if (m.kind !== "audio" && m.kind !== "video") return;
   const have = runtime.wavePeaks.get(m.id), src = m.src;
@@ -17701,17 +17705,23 @@ function encodeWAV(buf) {
    and fades. t0/t1 are timeline seconds (export window); mix time 0 is t0. */
 const FX_AUTOMATION_STEP = 0.02; // export automation resolution, seconds
 async function renderAudioMix(t0, t1) {
+  const dur = Math.max(0, t1 - t0);
+  if (dur <= 0) return null;
   const jobs = [];
   for (const c of mediaClips()) {
     if (c.kind !== "audio" && c.kind !== "video") continue;
     if (!clipRenders(c)) continue;
+    if (Math.min(c.start + c.duration, t1) - Math.max(c.start, t0) <= 1e-6) continue;
     const m = getMedia(c.mediaId); if (!m) continue;
-    jobs.push(getAudioBuffer(m).then((buf) => ({ c, buf })).catch(() => null));
+    // An explicitly constant zero-volume source contributes silence. Keep its
+    // audio-track presence without fetching/decoding the original picture.
+    // Any volume automation stays on the ordinary path, including a later unmute.
+    jobs.push(c.props?.volume === 0 && !c.keyframes?.volume?.length
+      ? Promise.resolve({ c, buf: null })
+      : getAudioBuffer(m).then((buf) => ({ c, buf })).catch(() => null));
   }
   const sources = (await Promise.all(jobs)).filter(Boolean);
   if (!sources.length) return null;
-  const dur = Math.max(0, t1 - t0);
-  if (dur <= 0) return null;
   const sr = 48000;
   const off = new OfflineAudioContext(2, Math.ceil(dur * sr) + 1, sr);
   await loadFxWorklet(off); // gate / limiter render in the export too
@@ -17723,6 +17733,7 @@ async function renderAudioMix(t0, t1) {
   for (const { c, buf } of sources) {
     const a = Math.max(c.start, t0), b = Math.min(c.start + c.duration, t1);
     if (b - a <= 1e-6) continue;
+    if (!buf) { scheduled = true; continue; } // preserve a silent mix/track
     const mixWhen = Math.max(0, a - t0);
     const mixDur = b - a;
     const local0 = a - c.start;

@@ -2855,6 +2855,15 @@ and stop reason. These are isolate measurements, not whole-process RSS or
 independent-worker memory. Sampling does not evaluate page JavaScript, force
 GC, change export choices/timeouts or establish an OOM/GPU/driver cause.
 
+Frozen export documents do not build interactive timeline waveform peaks.
+The offline mix prepares enabled media only when its clip overlaps the actual
+export window. An explicitly constant `volume:0` without volume keyframes
+keeps a silent mix/track of the requested length without decoding that source;
+volume automation and unspecified volume retain ordinary decoding. This avoids
+fetching a large muted picture solely for peaks or silence. The interactive
+editor still builds waveforms, and audible routing, effects and loudness use
+the same offline mix. This resource reduction alone does not certify a full export.
+
 The frozen `?exportJob=...` document also requests `willReadFrequently:true`
 when first creating the program, mask, composition, stroke, adjustment, pixel
 staging and crop 2D contexts. This lets the browser favour readback storage

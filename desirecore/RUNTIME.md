@@ -64,6 +64,8 @@ GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 
 
 同一独占管道仅 attach 到 URL 精确匹配原 job 的主页面，每10秒读取一次 `Runtime.getHeapUsage` 数字；最多一个未回请求，30秒未回就停止观测。原浏览器失败回执保留最多32个样本、总次数及峰值，MCP摘要只显示最后样本/峰值和停止原因。数字按该页面所在 isolate 的合同解释，不是完整进程 RSS，也不覆盖独立 worker。采样不执行页面 JavaScript、不强制 GC、不重试导出或更改120秒失联门限；不支持/销毁/关闭/管道错误会明确停采样，保留已有事实。只靠 heap 或工作集数值仍不能认定 OOM、GPU或驱动根因。
 
+冻结导出文档不生成交互时间线波形。离线 mix 只准备实际导出区间内相交且启用的音视频输入；明确恒定 `volume:0` 且没有 volume 关键帧的片段保留相同时长的静音 mix/声轨，不解码原媒体。有 volume 自动化或未明确静音时仍走原解码，交互编辑页的波形、可听输入的路由/效果和响度合同保持。这样避免为波形或静音而读取整份大视频，但不能单凭资源节省认定长导出故障已解决。
+
 同一独占管道通过 Chromium `Target.setDiscoverTargets` 观察 `Target.targetCrashed`，不增加调试端口或附着其它浏览器。只有 URL 匹配本 job 的页面崩溃才立即使原 job 失败；保留 Chromium 的实际 status/errorCode，不推断 GPU/OOM。失败回执的 `diagnostics.browser` 保存原浏览器 PID、discovery 状态、最近最多8次目标崩溃、最多16KiB stderr尾部和已观察到的根进程退出事实；目标崩溃条目不保存 URL/标题。PID只作观测，不用于重启后查杀。服务主动关闭后的事件标为 ownerClosing，不改写原终态。协议不支持时明确记录 unsupported，仍按原120秒失联合同处理；失联本身仍不能证明自然崩溃，stderr中可能出现本机路径或URL，应按运行数据保留。
 
 正常收尾只在原浏览器确认 close 后删除本 job 的一次性 profile；转录的保留缓存不删。服务被强杀后无法执行自己的 profile 清理；正常服务停止也可能先于浏览器 close/finalizer 退出，此时不保证 profile 清理或 TERM/KILL 兜底完成，OS 仍会关闭管道。旧一次性 profile 可能留存；重启不扫描临时目录、猜测归属或按旧 PID 补删。此 profile 生命周期与原 job 的 `exports` 临时产物登记、恢复清理和 `cleanup` 回执分别处理，不将 profile 移除冒作编码产物已清理。
