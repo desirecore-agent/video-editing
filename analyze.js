@@ -92,7 +92,7 @@ function analyzeAudio(pcm) {
   return Beats.analyze(pcm, { scale: 1 / 32768 });
 }
 
-/* ── Extract the reference's music track into its own audio file ── */
+/* ── Extract the entire reference audio (speech/music/effects; no separation) ── */
 async function extractMusic(file, outDir) {
   const stem = path.basename(file, path.extname(file)).replace(/[^\w.\- ()\[\]]+/g, "_");
   let out = path.join(outDir, stem + "-music.m4a");

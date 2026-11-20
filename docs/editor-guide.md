@@ -170,6 +170,14 @@ application update can replace the code without touching the project. **Don't as
 `project.json` is beside `mcp-server.js`** — call `fablecut_status`, which
 reports the real paths.
 
+HTTP media ranges, static assets, project thumbnails and cached-frame responses
+use the same file-stream lifetime. An interrupted browser response destroys its
+source reader, including an unfinished large video range. An asynchronous file
+open/read error fails that response and is handled without an unhandled stream
+error terminating the service. A failed graphic/media fetch still needs the
+original frame/export job to report its normal failure; it is not a successful
+render. Successful transfer bytes and Range headers are unchanged.
+
 Tests (and nothing else) may set **`FABLECUT_NO_FS_WATCH=1`** to skip `fs.watch`.
 On Windows, libuv can abort the process when a file is created under a temp
 data dir. Production leaves watching on so the UI live-reloads.
@@ -229,6 +237,12 @@ Reusable assets, visible in the editor's left-panel tabs and never copied:
 - Dropping files into these folders live-refreshes the open UI.
 
 ## Authoring animated SVGs (the `svg` clip kind)
+
+Forced timeline frames and exports await the actual static or animated SVG
+bitmap. Missing media, invalid XML or failed rasterization refuse the original
+job with `SVG_FRAME_UNAVAILABLE`, the clip and timeline time; a stale preview
+bitmap is not a substitute. Preview remains best effort. Validate generated SVG
+as XML (duplicate attributes are invalid), then inspect an actual rendered frame.
 
 You can create your own vector animations/overlays: write an `.svg` file into
 `library/svg/` (or `media/`), register it as media with `"kind": "svg"`, and
@@ -419,7 +433,24 @@ These are quick looks. For real grading use `props.grade` (see "Color" below).
 | `chromaKey` | "" | hex key color, e.g. `"#00ff00"` for green screen ("" = off) |
 | `chromaTolerance` | 26 | 0–100, how much color distance is keyed out |
 | `chromaSoftness` | 12 | 0–100, edge feather + spill suppression |
-| `bgRemove` | false | AI person cut-out (MediaPipe, loads from CDN on first use; needs internet once) |
+| `bgRemove` | false | AI person cut-out (MediaPipe, loaded in the renderer on first use). Forced frames await the model and a fresh inference result; unavailable/failed masks refuse the original frame/export job with `BACKGROUND_MASK_UNAVAILABLE`. Preview remains best effort. The owned headless browser enables GPU rendering; hardware/driver availability is still checked by the actual renderer. |
+| `bgThreshold` | 0 | 0–100 person-confidence cutoff. Zero preserves the original soft mask; positive values make lower-confidence pixels transparent, useful for residual background objects. |
+| `bgSoftness` | 10 | 0–100 confidence interval above the cutoff that smoothly becomes opaque (capped at 100). Zero is a hard edge; ignored when the cutoff is zero. |
+
+Keyed/cutout media also consume the existing `strokeWidth` (default 0, clamped
+to 0–100 destination pixels) and `strokeColor` (default black) props. For example,
+`{bgRemove:true, strokeWidth:9, strokeColor:"#ffffff"}` draws a white silhouette
+behind the original person. Preview and export use the same alpha contour;
+it needs no duplicate media player or extra segmentation inference. The Keying /
+Cut-out inspector exposes these controls. Zero disables it.
+
+Mask refinement runs before the silhouette stroke and uses the same smoothstep
+alpha curve in the GPU and CPU paths. For example, `bgThreshold:60,bgSoftness:10`
+rejects confidence below 60% and feathers 60–70%; inspect actual edges instead
+of assuming one value fits every source. The Draft-07 property descriptions,
+defaults and bounds are exported as `background-mask.js`'s `schema`, and invalid
+values refuse project admission. The renderer loads the fixed MediaPipe
+`0.1.1675465747` browser package.
 
 **Audio / time** (video/audio):
 | prop | default | notes |
@@ -2115,6 +2146,10 @@ tab, else a headless browser.
 
 Steady tones and sub-threshold energy ripple do not establish beats or tempo: analysis returns no beats and `bpm:null` while retaining loudness measurements. With `registerMusic:false`, an existing audio track is reported as present but not extracted; `music:null` does not mean silence.
 
+Extraction copies the **entire audio track**, including speech and sound effects; it does not separate music from narration. The MCP switch is `registerMusic:false`; REST/`analyze()` use `music:false`. Inspect the content and its authorized use before placing it on the timeline. Speech can produce periodic energy peaks, so a non-null BPM does not prove music is present.
+
+For a talking-head explainer, align the reference and source by speech, and inspect actual frames for chapter labels, diagrams, captions, framing and cutout edges. Shot detection may miss graphic events within a card. The measurements do not recreate that packaging or override the user's output preferences.
+
 Given a reference edit (a reel/montage the user likes), FableCut can analyze it
 and hand back an **edit blueprint** so the same idea can be rebuilt with
 different footage over the same music.
@@ -2144,10 +2179,10 @@ different footage over the same music.
 `threshold` tunes cut sensitivity (default adapts 0.30→0.20→0.12): lower it if
 obvious cuts were missed, raise it if motion is being misread as cuts.
 
-**Rebuild recipe** — the analysis is deterministic; the creative mapping is yours:
-1. `setProject`: copy the reference's `width/height/fps`; write `beats`
+**Optional music-led montage recipe** — choose it when it fits the goal; the creative mapping is yours:
+1. `setProject`: choose canvas/delivery settings from the user's goal and source detail; write useful `beats`
    (or the `cuts`) into `markers` so the user sees the grid.
-2. Music: the extracted track on A1, `in:0, duration:<ref duration>`.
+2. Music: only a confirmed, authorized music track, with its intended start and duration. Do not use reference narration as a music bed.
 3. Structure: one clip per `shots[]` entry on V1 at the same `start`/`duration`
    (hard cuts by default — that's what shot detection saw). Pick source footage
    whose motion matches each shot's `energy` (calm ≤40, action ≥70), and choose
@@ -2234,8 +2269,8 @@ obvious cuts were missed, raise it if motion is being misread as cuts.
   noise-reduced FLAC of the whole file into `./media/` (reused if it exists) and returns
   `{src, name, duration, channels}`. Does not touch `project.json` (see "Audio mix").
 - `POST /api/analyze` — body `{src:"/media/ref.mp4", threshold?, music?}`: analyze a
-  reference video into an edit blueprint (see "Remake a reference video"); extracts
-  its music into ./media. `GET /api/analyze?src=…` returns the cached blueprint.
+  reference video into an edit blueprint (see "Remake a reference video"); optionally extracts
+  its entire audio track into ./media, without source separation. `GET /api/analyze?src=…` returns the cached blueprint.
 - `GET  /api/frame?src=/media/x.mp4&t=3.2` — one JPEG still of a source clip, the
   "eyes" to go with `/api/analyze`'s ears (see "Look at the footage"). Optional
   `w` (pixel width, default 768) and `q` (ffmpeg `-q:v` 1–31, default 4).
@@ -2276,7 +2311,7 @@ obvious cuts were missed, raise it if motion is being misread as cuts.
   Explicit `where:"tab"` returns 409 before capture; other invalid values return 400,
   without changing the project/media or creating a snapshot, job or browser.
   Admission also returns 409 if one is already running or nothing can render it. `GET /api/export/job?id=`
-  → `{status: pending|running|done|failed|cancelled, progress 0–1, src, error}` ·
+  → `{status: pending|running|done|failed|cancelled|interrupted, progress 0–1, src, error, diagnostics}` ·
   `POST /api/export/job/cancel?id=`. The dedicated renderer reads
   `GET /api/export/job/ticket?id=`, then `POST /api/export/job/claim?id=`
   (the original job claims once, else 409), `POST /api/export/job/report?id=`
@@ -2553,6 +2588,20 @@ fonts are not a complete frozen dependency closure.
   replaced by another renderer. Other invalid values are rejected rather than
   defaulted. Frame, scopes, tracking and transcription tools retain their own
   tab/headless choices.
+- The owned browser uses an 800×600 viewport for the editor controls. This does
+  not change the program canvas, effect sampling or delivery size: a saved
+  2160×3840 project still renders on that 4K canvas. Windows cold-start tests
+  without an attached debugger reproduced GPU context loss and missing video
+  pixels even at this viewport size. On Windows the owned launcher therefore
+  disables hardware video decoding while keeping GPU/WebGL rendering for
+  effects and segmentation. Other platforms retain their decoder choice.
+  Software decode may cost more CPU. Inspect actual video pixels; a running
+  process, ready video element or completed job alone is insufficient.
+- Video export observes frame callbacks before starting an accurate seek, so a
+  frame presented before `seeked` is not missed. Once real samples establish a
+  source-frame interval, several output times inside it reuse that picture.
+  Clock-only fallback does not train that interval. This avoids repeatedly
+  seeking past and back to the correct frame when source and output rates differ.
 - Long edits: `wait:false` returns a job id at once; poll with `{job:"x_…"}`
   and stop one with `{cancel:"x_…"}`. One export runs at a time.
 
@@ -2784,6 +2833,138 @@ minutes, separate from its fifteen-second metadata deadline; an enclosing
 client can still impose its own deadline. Restart preserves an unfinished original ID as `interrupted`, not
 automatic continuation or an original-ID retry. Persistent snapshots and
 completed files remain retained facts, separate from temporary encoder paths.
+
+Each fresh person-mask result clears and replaces its previous pixels. Its
+canvas backing store is retained while dimensions match and resized only when
+they change. Every forced frame still awaits a new inference result; mask
+quality, threshold/softness and the shared compositor remain unchanged.
+
+Fast JPEG export pins an immutable RGBA snapshot synchronously using the same
+CPU readback primitive as raw-frame export, before drawing another frame.
+The buffer is transferred to a worker, which puts those exact pixels into a
+reused CPU-readback canvas. Up to seven snapshot buffers are in flight; the
+three workers reuse their canvases. This adds explicit CPU readback/transfer
+work, rather than depending on a GPU-backed `ImageBitmap` remaining readable
+later. The compositor, effects, resolution, frame order and delivery stay the same.
+
+Frame uploads consume the successful HTTP response body before advancing the
+ordered queue. The uploader clears its payload reference when the request
+settles, preserving the backing store and its contents for callers.
+
+The original browser pipe also reads numeric `Runtime.getHeapUsage` facts from
+one session on the exact job page every 10 seconds. It retains 32 samples,
+the count and numeric peaks; one unanswered request times out after 30 seconds
+and stops observation. Terminal MCP summaries preserve the last sample, peaks
+and stop reason. These are isolate measurements, not whole-process RSS or
+independent-worker memory. Sampling does not evaluate page JavaScript, force
+GC, change export choices/timeouts or establish an OOM/GPU/driver cause.
+
+For native exports the same browser owner also collects one light-level allocator
+snapshot after its thirteenth normal heap sample. `diagnostics.browser.nativeMemory`
+keeps only bounded process types and byte counters for malloc, partitions,
+array buffers, the compositor image cache, Blink and V8. The existing pipe reads
+the trace in 16KiB chunks with a 64MiB total budget, discards the raw trace, and
+never exposes addresses or media paths. The dump explicitly disables forced GC;
+unsupported, over-budget, timed-out or owner-closed observation cannot fail or
+retry the export. All terminal paths retain these facts before closing their owner and across restart; MCP summaries expose only fixed numeric counters and process types. Observation errors cannot prevent the original terminal result. A snapshot identifies measured allocations, not a root cause.
+
+Frozen export documents do not build interactive timeline waveform peaks.
+Their interactive animation loop exits from the first tick, including loading
+and audio preparation. It schedules no UI wakeups, timeline scans, ruler draws,
+inspector refreshes or caption watchers, and does not preload future preview
+players. The explicit job still seeks, prepares assets, draws each frame and
+reports its heartbeat. The interactive timeline and Source preview keep their
+existing loop; a foreground renderer still owns that editor's monitor pixels.
+The offline mix prepares enabled media only when its clip overlaps the actual
+export window. An explicitly constant `volume:0` without volume keyframes
+keeps a silent mix/track of the requested length without decoding that source;
+volume automation and unspecified volume retain ordinary decoding. This avoids
+fetching a large muted picture solely for peaks or silence. The interactive
+editor still builds waveforms, and audible routing, effects and loudness use
+the same offline mix. This resource reduction alone does not certify a full export.
+
+The frozen `?exportJob=...` document also requests `willReadFrequently:true`
+when first creating the program, mask, composition, stroke, adjustment, pixel
+staging and crop 2D contexts. This lets the browser favour readback storage
+instead of repeatedly reading GPU-backed 2D layers into the CPU snapshot.
+Interactive editor contexts retain their original caller settings/defaults;
+WebGL remains enabled for segmentation and pixel/grade effects. This setting
+does not by itself establish the cause of an earlier stalled export or prove
+that a full movie renders correctly on a particular driver.
+
+On a worker's first `EncodingError`, the failed canvas is released and the
+same retained pixels are encoded once on a fresh CPU-readback canvas. Its
+bitmap compatibility path likewise retains the original bitmap until it
+finishes. This does not seek again, redraw, skip a frame or restart a job.
+A failed recovery or another error still fails the original job.
+Delivery-mode success receipts record actual recovered zero-based frame indices
+as `result.diagnostics.jpegReadbackRecoveries` entries
+`{frame, reason:"EncodingError", readback:"cpu"}`. Verify those frames and their
+neighbours in the actual output; a JPEG alone does not prove scene correctness.
+
+A worker error or undecodable message rejects that worker's pending frame
+promises and stops it; it is not silently replaced. A missing JPEG response
+fails within 30 seconds with its zero-based frame. Frame preparation, video
+seek and backpressure/drain waits fail within 45 seconds with
+`EXPORT_FRAME <index> <step>`. Outstanding uploads/waits are aborted on failure;
+no frame is skipped or automatically rendered again. These asynchronous bounds
+are below the owner's 120-second stall limit. They cannot diagnose a completely
+blocked browser thread; a generic stall alone does not establish a crash, GPU
+failure or memory exhaustion. Keep the original failed job and inspect actual
+step/frame evidence before an explicit new attempt.
+
+The original export heartbeat also records `diagnostics.frameResources` at
+most once per second: its latest numeric counters, per-counter peaks and sample
+count. These report the actual WebCodecs source/queued/held-frame counts,
+decoded clips, owned HTML video elements, JPEG-worker selection, pixel/upload
+queues and audio-buffer cache entries, with the completed one-based frame
+count. They retain no frames, media paths, IDs or arbitrary page data. The
+receipt remains bounded regardless of movie length, survives the original
+terminal result/restart, and appears in `fablecut_export` status replies.
+These counters are neither memory measurements nor a diagnosis; a nonzero
+HTML-element count alone does not prove that the current picture used that
+element. Sampling does not release resources, force GC or choose a retry.
+
+The existing exclusive DevTools pipe also observes Chromium's
+`Target.targetCrashed`. A matching job page crash ends that original job with
+the reported termination status/error code, even if the browser root remains
+alive. Failure receipts expose `diagnostics.browser`: the original browser PID,
+discovery support, up to eight target-crash facts, a 16 KiB stderr tail and
+observed root exit facts. Target-crash entries omit URLs/titles; stderr can
+contain local paths or URLs. The PID is observational, never a restart kill
+target. Owner-induced closure is labelled and cannot replace
+the original terminal result. Unsupported discovery remains explicit and uses
+the unchanged stall contract; absence of a crash event does not prove a hang,
+GPU failure or memory exhaustion. Logs can contain local paths and remain
+runtime data. The observer adds no debug port or attachment to another browser.
+
+`fablecut_export {job:"…"}` includes these original browser facts for failed,
+cancelled and interrupted jobs, with at most the last 2048 stderr characters
+and an explicit truncation flag. When present in the original result,
+successful replies also include its actual zero-based JPEG recovery entries,
+including multi-file summaries. A metadata
+query preserves the original job and does not admit or retry another export.
+
+An explicit blank-page fixture validates this observation and ordinary close
+against an already prepared native runtime. It intentionally crashes its own
+page, not an editor or movie, and does not reproduce a natural video failure:
+
+```sh
+node .github/scripts/browser-crash-smoke.mjs --data-dir /owned/prepared-data --out /new/crash-observation-dir
+```
+
+The explicit native fixture below runs the production CPU snapshot and JPEG worker
+code against bounded 2160×3840 pixels in a separately owned browser. It checks
+that ownership transfers, and checks decoded frame-identity pixels. It does not
+start an editor server or certify a full export. Use an already prepared runtime
+and a new observation directory. The injected variant deliberately fails the
+first encode in each worker, then checks decoded frame-identity pixels; it is
+not evidence that a naturally occurring driver failure was reproduced.
+
+```sh
+node --test test/export-jpeg.test.js
+node .github/scripts/jpeg-readback-smoke.mjs --data-dir /owned/prepared-data --out /new/observation-dir --frames 3105 --inject one-per-worker
+```
 
 The service exclusively owns each background browser's DevTools pipe. Closing
 that pipe, including the OS closing it when the service is killed, invokes the

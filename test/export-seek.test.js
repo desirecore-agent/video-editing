@@ -185,10 +185,83 @@ test("hardSeekVideo: a late frame callback on the last try still uses the finish
   const el = seekingVideo({ currentTime: 0, presented: 0 });
   await hardSeekVideo(el, 2.0);   // a different frame, but the callback never arrives (busy page)
   assert.equal(el._fcPresentedTime, 2.0);
+  assert.equal(el._fcLastShown, 0, "clock fallback is not an observed source-frame timestamp");
+  assert.equal(el._fcFrameSeen, 5, "do not train source frame duration on output clocks");
 });
 
 test("hardSeekVideo: a seek that never lands still fails", async () => {
   const { hardSeekVideo } = loadHard();
   const el = seekingVideo({ currentTime: 0, presented: 0, completes: false });
   await assert.rejects(hardSeekVideo(el, 2.0), /presented frame timeout/);
+});
+
+function videoWithPresentedSeek({ beforeSeeked, staleFirst = false, staleTime = 0 }) {
+  const listeners = new Map(), callbacks = new Map();
+  let sequence = 0;
+  const el = {
+    _time: 0, paused: true, seeking: false, readyState: 2,
+    assignments: 0, rvfcCalls: 0,
+    get currentTime() { return el._time; },
+    set currentTime(value) {
+      el._time = value; el.seeking = true; el.assignments++;
+      const present = mediaTime => {
+        const pending = [...callbacks.values()]; callbacks.clear();
+        for (const callback of pending) callback(0, { mediaTime });
+      };
+      const finish = () => {
+        el.seeking = false;
+        for (const callback of [...(listeners.get("seeked") || [])]) callback();
+      };
+      if (staleFirst) setTimeout(() => present(staleTime), 1);
+      setTimeout(() => present(Math.floor(value * 30) / 30), beforeSeeked ? 4 : 12);
+      setTimeout(finish, beforeSeeked ? 10 : 4);
+    },
+    pause() { el.paused = true; },
+    requestVideoFrameCallback(callback) { el.rvfcCalls++; callbacks.set(++sequence, callback); return sequence; },
+    cancelVideoFrameCallback(id) { callbacks.delete(id); },
+    addEventListener(name, callback) {
+      if (!listeners.has(name)) listeners.set(name, []);
+      listeners.get(name).push(callback);
+    },
+    removeEventListener(name, callback) {
+      const list = listeners.get(name) || [], index = list.indexOf(callback);
+      if (index >= 0) list.splice(index, 1);
+    },
+  };
+  return el;
+}
+
+for (const beforeSeeked of [true, false]) test(`hardSeekVideo observes a target frame ${beforeSeeked ? "before" : "after"} seeked without retrying`, async () => {
+  const { hardSeekVideo } = loadHard();
+  const el = videoWithPresentedSeek({ beforeSeeked });
+  await hardSeekVideo(el, 1.04);
+  assert.equal(el.assignments, 1, "one accurate seek is sufficient when its real presented frame arrives");
+  assert.equal(el._fcPresentedTime, 31 / 30, "retain actual frame mediaTime rather than inventing the requested clock");
+});
+
+test("hardSeekVideo ignores an old presented frame while waiting for the seek target", async () => {
+  const { hardSeekVideo } = loadHard();
+  const el = videoWithPresentedSeek({ beforeSeeked: true, staleFirst: true });
+  await hardSeekVideo(el, 1.04);
+  assert.equal(el.assignments, 1);
+  assert.equal(el._fcPresentedTime, 31 / 30);
+});
+
+test("hardSeekVideo does not accept the preceding queued frame as a new seek result", async () => {
+  const { hardSeekVideo } = loadHard();
+  const el = videoWithPresentedSeek({ beforeSeeked: true, staleFirst: true, staleTime: 1 });
+  el._time = 1; el._fcPresentedTime = 1; el._fcLastShown = 1;
+  await hardSeekVideo(el, 1.04);
+  assert.equal(el.assignments, 1);
+  assert.equal(el._fcPresentedTime, 31 / 30);
+});
+
+test("playAdvanceVideo accepts the source frame containing a fractional target", async () => {
+  let seeks = 0;
+  const { playAdvanceVideo } = loadPlay(() => { seeks++; return Promise.resolve(); });
+  const el = mockVideo({ currentTime: 1.1, paused: false, rvfcMediaTime: 31 / 30, rvfcDelayMs: 1 });
+  el._fcFrameDur = 1 / 30; el._fcFrameSeen = 5;
+  await playAdvanceVideo(el, 1.04, 1 / 60, 1.3);
+  assert.equal(seeks, 0, "a 30fps source frame covers more than one 60fps output time");
+  assert.equal(el._fcPresentedTime, 31 / 30);
 });

@@ -45,32 +45,38 @@
     },
     {
       "path": "README.md",
-      "sha256": "2eec82021c2dc2f822e1e778d33ca965e262bd113a456a9bb3bc72c0cc02dba8",
-      "size": 6126,
+      "sha256": "afafbbb453362e068e7cac744bc38c561b3487e7d5624773589a6e2b8456c3de",
+      "size": 8573,
       "role": "documentation"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "3cf5ac174713d19b874b03e1696eae49b39f1171cb67d09445d1686880eaeecd",
-      "size": 5137,
+      "sha256": "3b57b32cd1f992c7a6d56ec920da72f1f450fd147859356497fac359bfef1629",
+      "size": 7286,
       "role": "documentation"
     },
     {
       "path": "analyze.js",
-      "sha256": "72d38386fee6b75140096c35f9a56ccca57cccb4058e847b287d08c9a6040dc8",
-      "size": 17049,
+      "sha256": "f75d28ab3f4c0b242276e7c90c66e93f64d0ffe1fb6be1e4e9c5b2f1af228bca",
+      "size": 17062,
       "role": "runtime"
     },
     {
       "path": "app.js",
-      "sha256": "988ec86933bf100b991f2bd70739a9cbe13b27af85aacde4b8e0b99a379a1c11",
-      "size": 1042407,
+      "sha256": "57c4b63fcefeff0077275b637692ef04fe2fe4d86c6e9d7225641dc6c71d2a27",
+      "size": 1058243,
       "role": "runtime"
     },
     {
       "path": "audio-fx.js",
       "sha256": "f9912efcfdcb3cce7cfac28aefc10d668c7f7d76473237efd2153be654b16b63",
       "size": 11591,
+      "role": "runtime"
+    },
+    {
+      "path": "background-mask.js",
+      "sha256": "9ececb0f4891783b3c6b60e809616c9dfc9720f51f31c69eb058b7fc7c5ca1e0",
+      "size": 1983,
       "role": "runtime"
     },
     {
@@ -81,8 +87,8 @@
     },
     {
       "path": "browser-process.js",
-      "sha256": "90cb24f8a455e707e161bebb0af95537bfce126f959470fdbbcf1b184cc12002",
-      "size": 2741,
+      "sha256": "5602609bc42a3e5234c9aeb4ca83f774770f08551fe10abab4686c88f5e208e1",
+      "size": 15843,
       "role": "runtime"
     },
     {
@@ -135,8 +141,8 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "d9a83edcd0463c72615a22bf42420d90c810e09025e5700a5ff64b9f74287c77",
-      "size": 17789,
+      "sha256": "a4d9fd1f7c794af2af92aa8c3f21a5fa70dd0598211a78bd45d4e06b0ae9a429",
+      "size": 23639,
       "role": "documentation"
     },
     {
@@ -213,8 +219,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "1e2bd36c15f2b2db267ce0ec460594714f583a7f5bd1023354f8ed0697d530de",
-      "size": 186259,
+      "sha256": "5c65511f504341424700f804753c30fc69f94c0f29bbfa14dd46dca42a313748",
+      "size": 199568,
       "role": "documentation"
     },
     {
@@ -243,8 +249,8 @@
     },
     {
       "path": "export-jobs.js",
-      "sha256": "636df0cb6d7d7586719b6eec622ecbeb681c85557532ab86deeb5639129a9aaa",
-      "size": 26303,
+      "sha256": "8d44a049b2fbfbc5a08422dc2354474ea12cb1a355833f19e48fa8151d30c628",
+      "size": 28887,
       "role": "runtime"
     },
     {
@@ -290,6 +296,12 @@
       "role": "runtime"
     },
     {
+      "path": "http-file-stream.js",
+      "sha256": "23be1f914cfb04edc4aa815b0476c7e06547a1d5a88d2526852379e85f9fc70c",
+      "size": 969,
+      "role": "runtime"
+    },
+    {
       "path": "icons/favicon-32.png",
       "sha256": "ca3cdf52722b2ad0eee0959d8b945f86d54ae7f8f1030d0b641cb28f29c7406b",
       "size": 551,
@@ -303,8 +315,8 @@
     },
     {
       "path": "index.html",
-      "sha256": "a3103b50fa9194004492818045a05af6665aba9cced6deb8768803a4390e600a",
-      "size": 56827,
+      "sha256": "227ae078c5d181a1b791b2d80561c1c54b13c21dcbef6317c14631f7cb0b9bf6",
+      "size": 56870,
       "role": "ui"
     },
     {
@@ -645,8 +657,8 @@
     },
     {
       "path": "manifest.json",
-      "sha256": "3b9ff7625f0e817de47160a3f8d5ca75e5d53d31b7e9e60fc95ef9ac3975cd48",
-      "size": 6357,
+      "sha256": "5852820b9327df0efd7b9a9174a314d2b576deb9f307c1ea70175a71fc68772d",
+      "size": 6387,
       "role": "runtime"
     },
     {
@@ -657,8 +669,8 @@
     },
     {
       "path": "mcp-server.js",
-      "sha256": "36ffa59bcc2ca5017a160ffb7808c79c0997920c3602a1e542b940ea1e444ce5",
-      "size": 162098,
+      "sha256": "428ff93fa01b20af98690a49e6e05d15de246b6cf177e4e6770801a3969e2512",
+      "size": 165728,
       "role": "runtime"
     },
     {
@@ -717,8 +729,8 @@
     },
     {
       "path": "project-ops.js",
-      "sha256": "7dea3a68c56104e2946903de005c367f39599667cd7532dba43fa970fbb1395f",
-      "size": 97929,
+      "sha256": "f0d0326e6276839d83b60acbe252ef35e0d6de87031b3b5d5da0acdd73a58714",
+      "size": 98086,
       "role": "runtime"
     },
     {
@@ -759,8 +771,8 @@
     },
     {
       "path": "server.js",
-      "sha256": "3d8934f6fce011f0cbfca243b75357b6bacaa64b71877f8009f0c9715aedcac0",
-      "size": 87825,
+      "sha256": "ff30edd6f34cf354b3b26ec6e574c1d5da0f201d97665909f8078f6949215c88",
+      "size": 87863,
       "role": "runtime"
     },
     {
@@ -813,8 +825,8 @@
     },
     {
       "path": "ui-copy.zh-CN.js",
-      "sha256": "0cda1aad3b8b1dd789d5264f053d3bee286dfab26454a5c5623f7f5e900664ff",
-      "size": 42084,
+      "sha256": "cac093aa9454d6757f9854be475361d398c4f427ad97f61a133c062112204f3a",
+      "size": 42161,
       "role": "runtime"
     },
     {
@@ -826,7 +838,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "7b75190ae71fdf35b70100a7c4353b0eb09b146f9086271edb0f7522cd9060e6"
+    "sha256": "bfce3de5c905f300717bd3de97c7663db3a9441eb8dac7b508cef6175a76c996"
   },
   "supportedPlatforms": [
     "darwin",
@@ -859,5 +871,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "6642508bbe8ba3fe1ec128b4989396f1457339c76b79a94a0d49ea2600890e3c"
+  "releaseDigest": "17413360b762e21594cccd5e3c46638154d418bd2bf8e4470fba67b040705454"
 }

@@ -44,6 +44,17 @@ function findBrowser(env = process.env) {
   return candidates.find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }) || null;
 }
 
+/** Only these nonnegative integer counters may enter an original job receipt
+ * or MCP summary. Never persist arbitrary page objects, media IDs or paths. */
+function frameResourceCounters(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(["frame", "pixelsInflight", "uploadsInflight", "jpegWorkerEnabled",
+    "decoders", "decoderQueuedChunks", "decoderQueuedFrames", "decoderHeldFrames",
+    "decodedVideoClips", "htmlVideoElements", "audioBufferEntries"]
+    .filter(key => Number.isSafeInteger(value[key]) && value[key] >= 0)
+    .map(key => [key, value[key]]));
+}
+
 /** opts: {url(id) → page to open headless, broadcast(event, data), editors() → open tab count,
  *  keepProfile(kind) → a browser profile dir that outlives the job (a model cache), or null for a throwaway one} */
 function createExportJobs(opts) {
@@ -53,7 +64,7 @@ function createExportJobs(opts) {
   const view = (j) => ({
     id: j.id, kind: j.kind, status: j.status, via: j.via, range: j.range, profile: j.profile || null, preset: j.delivery ? j.delivery.preset || "custom" : null,
     time: j.time ?? null, progress: j.progress, src: j.src || null, result: j.result || null, error: j.error || null,
-    snapshot: j.snapshot || null, cleanup: j.cleanup || null,
+    snapshot: j.snapshot || null, cleanup: j.cleanup || null, diagnostics: j.diagnostics || null,
     created: j.created, updated: j.updated,
   });
 
@@ -235,6 +246,10 @@ function createExportJobs(opts) {
   }
   function end(j, status, fields = {}) {
     if (isEnded(j)) return;
+    // 成功也可能有资源异常；关闭 owner 前保留同一份事实，观测失败不改终态。
+    if (j.browser?.diagnostics) try {
+      j.diagnostics = { ...j.diagnostics, browser: j.browser.diagnostics() };
+    } catch {}
     Object.assign(j, fields, { status, updated: Date.now() });
     persist(j);
     closeBrowser(j);
@@ -260,16 +275,30 @@ function createExportJobs(opts) {
     if (kept) fs.mkdirSync(kept, { recursive: true });
     const profileDir = kept || fs.mkdtempSync(path.join(os.tmpdir(), "fablecut-export-"));
     const browser = createBrowserProcess(exe, [
-      "--headless=new", `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check",
+      // chrome-headless-shell otherwise forces software rendering and cannot
+      // create the WebGL context required by the shared segmentation compositor.
+      "--headless=new", "--enable-gpu", `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check",
+      // Windows hardware video decode can lose the GPU context and leave a
+      // ready video element with no drawable pixels. Keep GPU effects, but
+      // decode video in software on that platform (verified without DevTools).
+      ...(process.platform === "win32" ? ["--disable-accelerated-video-decode"] : []),
       "--disable-extensions", "--mute-audio", "--autoplay-policy=no-user-gesture-required",
       "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
-      "--disable-backgrounding-occluded-windows", "--window-size=1600,900",
+      // This is the editor UI's viewport, not the project/export canvas. A
+      // larger hidden surface can lose the Windows GPU context while decoding
+      // portrait video; keep the controls compact and render at project size.
+      "--disable-backgrounding-occluded-windows", "--window-size=800,600",
       opts.url(j.id),
-    ], { profileDir, keep: !!kept });
+    ], { profileDir, keep: !!kept, observePageMemory: opts.url(j.id), observeNativeAllocators: j.kind === "export", onTargetCrash: crash => {
+      if (crash.type !== "page" || crash.url !== opts.url(j.id) || isEnded(j)) return;
+      end(j, "failed", { error: `the export page crashed: ${crash.status} (Chromium error ${crash.errorCode})` });
+    } });
     const { proc } = browser;
     j.browser = browser;
     proc.on("error", (e) => end(j, "failed", { error: "could not start the headless browser: " + e.message }));
-    proc.on("exit", () => { if (j.browser) { j.browser = null; if (!isEnded(j)) end(j, "failed", { error: "the headless browser exited before the export finished" }); } });
+    proc.on("exit", () => {
+      if (j.browser && !isEnded(j)) end(j, "failed", { error: "the headless browser exited before the export finished" });
+    });
   }
 
   return {
@@ -330,12 +359,21 @@ function createExportJobs(opts) {
       return true;
     },
     /** Progress / result from the running tab. Returns {cancel} so a cancel reaches it. */
-    report(id, { progress, status, src, result, error } = {}) {
+    report(id, { progress, status, src, result, error, frameResources } = {}) {
       const j = jobs.get(id);
       if (!j) return null;
       if (j.status === "cancelled") return { cancel: true };
       if (j.status !== "running") return { cancel: false };
       j.updated = Date.now();
+      const last = frameResourceCounters(frameResources);
+      if (Object.keys(last).length) {
+        const previous = j.diagnostics?.frameResources, peak = frameResourceCounters(previous?.peak);
+        for (const [key, value] of Object.entries(last)) peak[key] = Math.max(peak[key] || 0, value);
+        const count = Number.isSafeInteger(previous?.sampleCount) && previous.sampleCount >= 0 ? previous.sampleCount : 0;
+        j.diagnostics = { ...j.diagnostics, frameResources: {
+          schemaVersion: 1, sampleCount: Math.min(Number.MAX_SAFE_INTEGER, count + 1), last, peak,
+        } };
+      }
       if (Number.isFinite(progress)) j.progress = Math.max(0, Math.min(1, progress));
       if (status === "done") end(j, "done", { progress: 1, src: String(src || ""), result: result && typeof result === "object" ? result : null });
       else if (status === "failed") end(j, "failed", { error: String(error || "export failed") });
@@ -356,4 +394,4 @@ function createExportJobs(opts) {
   };
 }
 
-module.exports = { createExportJobs, findBrowser };
+module.exports = { createExportJobs, findBrowser, frameResourceCounters };

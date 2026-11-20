@@ -6,6 +6,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 "use strict";
 const TextEmphasis = self.FableCutTextEmphasis;
+const BackgroundMask = self.FableCutBackgroundMask;
 
 /* Editor chrome only. Compositor props and film colours never read this palette. */
 function uiColor(key, fallback) {
@@ -82,6 +83,7 @@ const DEFAULT_PROPS = {
   blend: "normal",                             // canvas blend mode
   chromaKey: "", chromaTolerance: 26, chromaSoftness: 12,  // green-screen key
   bgRemove: false,                             // AI person cut-out (MediaPipe)
+  bgThreshold: 0, bgSoftness: 10,              // confidence cleanup (%); zero threshold preserves soft alpha
   shake: 0, shakeSpeed: 8,                     // handheld/impact camera shake (px)
   rgbSplit: 0,                                 // chromatic aberration (px)
   grain: 0,                                    // film grain (%)
@@ -823,7 +825,14 @@ const els = {
   importUrlOverlay: $("importUrlOverlay"), importUrlInput: $("importUrlInput"),
   importUrlStatus: $("importUrlStatus"), importUrlProgress: $("importUrlProgress"),
 };
-let ctx2d = els.preview.getContext("2d");   // drawMaskedClip points it at an offscreen layer while a masked clip draws
+// A frozen export document reads every composited frame back to CPU pixels.
+// Set this on the first context creation; later calls cannot change its store.
+// The interactive editor retains each caller's original settings/defaults.
+const compositorReadback = Boolean(new URLSearchParams(location.search).get("exportJob"));
+function compositorContext(canvas, settings) {
+  return canvas.getContext("2d", compositorReadback ? { ...settings, willReadFrequently: true } : settings);
+}
+let ctx2d = compositorContext(els.preview);   // drawMaskedClip points it at an offscreen layer while a masked clip draws
 
 /* ── Utils ─────────────────────────────────────────────────────────────── */
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -1936,6 +1945,10 @@ function getAudioBuffer(m) {
   return p;
 }
 function ensureWave(m) {
+  // The frozen export document has no interactive timeline waveform consumer.
+  // In particular, do not fetch a multi-GB muted picture just to draw peaks.
+  // renderAudioMix prepares the audio inputs actually needed by its window.
+  if (compositorReadback) return;
   // Also decode peaks from video files when their audio is placed on an A track
   if (m.kind !== "audio" && m.kind !== "video") return;
   const have = runtime.wavePeaks.get(m.id), src = m.src;
@@ -2995,12 +3008,12 @@ function mediaPlaySrc(m) {
   const p = proxyOf(m);
   return p ? p.src : m.src;
 }
-/** Switch every player to the original files and wait until they can draw (export, still renders). */
+/** Switch existing players to originals; future clips open lazily during output. */
 async function useOriginalPlayers() {
   runtime.forceOriginals = true;
   const waits = [];
   for (const c of mediaClips()) {
-    if (c.kind !== "video" || !clipRenders(c)) continue;
+    if (c.kind !== "video" || !clipRenders(c) || !runtime.clipEls.has(c.id)) continue;
     const el = getClipEl(c);
     if (el) waits.push(waitMediaEl(el));
   }
@@ -6782,6 +6795,10 @@ function renderInspector(lite) {
       ${slider("chromaTolerance", 0, 100, 1, p.chromaTolerance)}
       ${slider("chromaSoftness", 0, 100, 1, p.chromaSoftness)}
       ${check("AI bg remove", "bgRemove", p.bgRemove)}
+      ${slider("bgThreshold", 0, 100, 1, p.bgThreshold, "%")}
+      ${slider("bgSoftness", 0, 100, 1, p.bgSoftness, "%")}
+      ${slider("strokeWidth", 0, 100, 0.5, p.strokeWidth, "px")}
+      ${row("Stroke col.", `<input type="color" data-k="strokeColor" value="${p.strokeColor || "#000000"}">`, "", "strokeColor")}
     </div>`;
   }
   if (c.kind === "video" || c.kind === "audio") {
@@ -11058,17 +11075,29 @@ function parseSvgSize(txt) {
 }
 async function loadSvgMedia(m) {
   const gen = runtime.projectGen;
-  const txt = await (await fetch(m.src)).text();
+  const src = m.src;
+  const aux = runtime.mediaAux.get(m.id) || {};
+  // Relinking/loading must not leave a previous successful bitmap available
+  // while the new source is pending or after it fails.
+  aux.svgSrc = src; aux.svgText = null; aux.img = null; aux.lastImg = null;
+  runtime.mediaAux.set(m.id, aux);
+  const response = await fetch(src);
+  if (!response.ok) throw new Error(`SVG source HTTP ${response.status}`);
+  const txt = await response.text();
   if (gen !== runtime.projectGen) return;   // another project was opened meanwhile
+  if (aux.svgSrc !== src) return;           // the same media was relinked again
   const { width, height } = parseSvgSize(txt);
   m.width = width; m.height = height;
-  const aux = runtime.mediaAux.get(m.id) || {};
   aux.svgText = txt;
   aux.svgAnimated = /@keyframes|animation\s*:/i.test(txt);
   aux.svgFrames = new Map(); // quantized t -> HTMLImageElement (small LRU)
   aux.svgPending = null;
   runtime.mediaAux.set(m.id, aux);
-  if (!aux.svgAnimated) { const img = await rasterizeSvgMarkup(txt); if (gen === runtime.projectGen) aux.img = img; }
+  if (!aux.svgAnimated) {
+    const img = await rasterizeSvgMarkup(txt);
+    if (gen === runtime.projectGen && aux.svgSrc === src) aux.img = img;
+    else closeSvgFrame(img);
+  }
   state.dirtyTimeline = true;
 }
 function svgMarkupAt(aux, t) {
@@ -11129,26 +11158,33 @@ function getSvgImage(c, t) {
   return aux.lastImg || null; // may be one frame stale during preview
 }
 async function prepareSvgFrame(c, t) {
-  const aux = runtime.mediaAux.get(c.mediaId);
-  if (!aux) return;
-  if (!aux.svgText) { try { await loadSvgMedia(getMedia(c.mediaId)); } catch { return; } }
-  if (!aux.svgAnimated) return;
+  const media = getMedia(c.mediaId);
+  if (!media) throw new Error("SVG media source unavailable");
+  let aux = runtime.mediaAux.get(c.mediaId);
+  if (aux?.svgSrc !== media.src || !aux?.svgText || (!aux.svgAnimated && !aux.img)) {
+    await loadSvgMedia(media);
+    aux = runtime.mediaAux.get(c.mediaId);
+  }
+  if (!aux?.svgText) throw new Error("SVG source unavailable");
+  if (!aux.svgAnimated) {
+    if (!aux.img || !(aux.img.width || aux.img.naturalWidth) || !(aux.img.height || aux.img.naturalHeight))
+      throw new Error("SVG bitmap unavailable");
+    return;
+  }
   const local = Math.max(0, mediaTimeAt(c, t));
   const q = Math.round(local * projectFps()) / projectFps();
   if (aux.svgFrames.get(q)) return;
-  try {
-    const img = await renderSvgFrame(aux, q);
-    aux.svgFrames.set(q, img);
-    pruneSvgFrames(aux);
-    aux.lastImg = img;
-  } catch { }
+  const img = await renderSvgFrame(aux, q);
+  aux.svgFrames.set(q, img);
+  pruneSvgFrames(aux);
+  aux.lastImg = img;
 }
 
 /* ═════════════ AI BACKGROUND REMOVAL (MediaPipe selfie segmentation) ════════
    Loaded lazily from CDN the first time a clip sets props.bgRemove. Produces a
    per-clip person mask consumed by the pixel pipeline below. Degrades politely
    when offline. */
-const bgSeg = { seg: null, loading: null, failed: false, queue: Promise.resolve(), masks: new Map() };
+const bgSeg = { seg: null, loading: null, failed: false, error: null, resultVersion: 0, queue: Promise.resolve(), masks: new Map() };
 function loadScript(src) {
   return new Promise((res, rej) => {
     const s = document.createElement("script");
@@ -11159,20 +11195,28 @@ function loadScript(src) {
 function ensureBgSeg() {
   if (bgSeg.seg || bgSeg.failed) return bgSeg.loading || Promise.resolve();
   if (!bgSeg.loading) {
-    const base = "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation";
-    bgSeg.loading = loadScript(`${base}/selfie_segmentation.js`).then(() => {
+    const base = "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747";
+    bgSeg.loading = loadScript(`${base}/selfie_segmentation.js`).then(async () => {
       const seg = new SelfieSegmentation({ locateFile: (f) => `${base}/${f}` });
-      seg.setOptions({ modelSelection: 1 });
+      await seg.setOptions({ modelSelection: 1 });
       seg.onResults((r) => {
         if (!bgSeg.currentClip) return;
         let cv = bgSeg.masks.get(bgSeg.currentClip);
         if (!cv) { cv = document.createElement("canvas"); bgSeg.masks.set(bgSeg.currentClip, cv); }
-        cv.width = r.segmentationMask.width; cv.height = r.segmentationMask.height;
-        cv.getContext("2d").drawImage(r.segmentationMask, 0, 0);
+        // Reassigning even an unchanged dimension reallocates/clears the
+        // backing store. Keep it across frames, but replace transparent areas
+        // as well as opaque pixels so yesterday's mask cannot remain visible.
+        if (cv.width !== r.segmentationMask.width) cv.width = r.segmentationMask.width;
+        if (cv.height !== r.segmentationMask.height) cv.height = r.segmentationMask.height;
+        const ctx = compositorContext(cv);
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(r.segmentationMask, 0, 0);
+        bgSeg.resultVersion++;
       });
       bgSeg.seg = seg;
-    }).catch(() => {
+    }).catch((error) => {
       bgSeg.failed = true;
+      bgSeg.error = error;
       toast("Background removal unavailable — couldn't load MediaPipe (offline?). Using chroma key still works.");
     });
   }
@@ -11182,17 +11226,26 @@ function ensureBgSeg() {
    Preview calls are dropped while one is in flight (masks lag a frame at most);
    the exporter passes force=true and awaits the exact mask. */
 bgSeg.pending = 0;
-function requestMask(clipId, el, force = false) {
-  ensureBgSeg();
-  if (!bgSeg.seg) return bgSeg.loading || Promise.resolve();
+async function requestMask(clipId, el, force = false) {
+  const loading = ensureBgSeg();
+  if (force) await loading;
+  if (!bgSeg.seg) {
+    if (force) throw bgSeg.error || new Error("segmentation runtime unavailable");
+    return loading;
+  }
   if (!force && bgSeg.pending > 0) return Promise.resolve();
   bgSeg.pending++;
-  bgSeg.queue = bgSeg.queue.then(async () => {
-    if ((el.videoWidth || el.naturalWidth || 0) === 0) return;
+  bgSeg.queue = bgSeg.queue.catch(() => {}).then(async () => {
+    if ((el.videoWidth || el.naturalWidth || 0) === 0) {
+      if (force) throw new Error("segmentation source unavailable");
+      return;
+    }
     bgSeg.currentClip = clipId;
-    try { await bgSeg.seg.send({ image: el }); } catch { }
+    const version = bgSeg.resultVersion;
+    await bgSeg.seg.send({ image: el });
+    if (force && bgSeg.resultVersion === version) throw new Error("mask result unavailable");
   }).finally(() => { bgSeg.pending--; });
-  return bgSeg.queue;
+  return force ? bgSeg.queue : bgSeg.queue.catch(() => {});
 }
 
 /* ═══════════ PIXEL PIPELINE (chroma key · temperature · tint · mask) ═══════
@@ -11239,7 +11292,7 @@ function drawAdjust(c, W, H, t) {
   const p = evalProps(c, t);
   if (adjScratch.width !== W) adjScratch.width = W;
   if (adjScratch.height !== H) adjScratch.height = H;
-  const a = adjScratch.getContext("2d");
+  const a = compositorContext(adjScratch);
   a.clearRect(0, 0, W, H);
   a.drawImage(runtime.adjSource || els.preview, 0, 0);   // inside a comp: the comp's own layers below
   ctx2d.save();
@@ -11299,6 +11352,7 @@ uniform int uKey;
 uniform vec2 uKeyC;        // key colour Cb, Cr (0…255)
 uniform vec2 uKeyT;        // tolerance t0, t1 (CbCr distance)
 uniform vec2 uShift;       // temperature (R+, B−), tint (G+), in 0…255 units
+uniform vec2 uMask;        // confidence cutoff and feather interval; zero cutoff preserves alpha
 out vec4 o;
 void main() {
   ivec2 sz = uSize;
@@ -11306,6 +11360,10 @@ void main() {
   vec4 c = texelFetch(uTex, q, 0);
   vec3 rgb = c.rgb * 255.0;
   float a = c.a;
+  if (uMask.x > 0.0) {
+    float high = min(1.0, uMask.x + uMask.y);
+    a = high <= uMask.x ? step(uMask.x, a) : smoothstep(uMask.x, high, a);
+  }
   if (uSplit > 0) {
     rgb.r = texelFetch(uTex, ivec2(min(sz.x - 1, q.x + uSplit), q.y), 0).r * 255.0;
     rgb.b = texelFetch(uTex, ivec2(max(0, q.x - uSplit), q.y), 0).b * 255.0;
@@ -11360,12 +11418,12 @@ function initPixGL() {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);   // straight alpha, as getImageData returns it
     const loc = {};
-    for (const n of ["uTex", "uSize", "uSplit", "uKey", "uKeyC", "uKeyT", "uShift"]) loc[n] = gl.getUniformLocation(prog, n);
+    for (const n of ["uTex", "uSize", "uSplit", "uKey", "uKeyC", "uKeyT", "uShift", "uMask"]) loc[n] = gl.getUniformLocation(prog, n);
     gl.uniform1i(loc.uTex, 0);
     cv.addEventListener("webglcontextlost", (e) => { e.preventDefault(); pixGL.gl = null; });
     cv.addEventListener("webglcontextrestored", () => { pixGL.tried = false; });
-    const stage = document.createElement("canvas");   // GPU-backed: no willReadFrequently
-    Object.assign(pixGL, { gl, canvas: cv, loc, stage, stageCtx: stage.getContext("2d") });
+    const stage = document.createElement("canvas");
+    Object.assign(pixGL, { gl, canvas: cv, loc, stage, stageCtx: compositorContext(stage) });
     return gl;
   } catch (err) {
     console.warn("[视频剪辑] WebGL2 pixel pass unavailable, using the CPU path:", err && err.message);
@@ -11391,8 +11449,9 @@ function pixelPassGL(c, p, src, sx, sy, sw, sh, w, h, dw) {
     g.globalCompositeOperation = "source-over";
   }
   const doKey = !!p.chromaKey, temp = +p.temperature || 0, tint = +p.tint || 0;
+  const maskSettings = BackgroundMask.settings(mask ? p : {});
   const split = Math.round(clamp(+p.rgbSplit || 0, 0, 60) * (w / Math.max(1, dw)));
-  const run = doKey || temp || tint || split > 0;
+  const run = doKey || temp || tint || split > 0 || maskSettings.threshold > 0;
   let out = pixGL.outs.get(c.id);
   if (!out) {
     if (pixGL.outs.size >= 32) pixGL.outs.delete(pixGL.outs.keys().next().value);
@@ -11401,7 +11460,7 @@ function pixelPassGL(c, p, src, sx, sy, sw, sh, w, h, dw) {
   }
   if (out.width !== w) out.width = w;
   if (out.height !== h) out.height = h;
-  const o = out.getContext("2d");
+  const o = compositorContext(out);
   o.clearRect(0, 0, w, h);
   if (!run) { o.drawImage(stage, 0, 0, w, h, 0, 0, w, h); return out; }
   try {
@@ -11419,6 +11478,7 @@ function pixelPassGL(c, p, src, sx, sy, sw, sh, w, h, dw) {
       gl.uniform2f(loc.uKeyT, t0, t0 + Math.max(1, clamp(+p.chromaSoftness || 0, 0, 100) * 1.2));
     }
     gl.uniform2f(loc.uShift, temp * 0.6, tint * 0.5);
+    gl.uniform2f(loc.uMask, maskSettings.threshold, maskSettings.softness);
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     o.drawImage(cv, 0, cv.height - h, w, h, 0, 0, w, h);   // the viewport is the buffer's bottom-left
@@ -11446,8 +11506,9 @@ function pixelPass(c, p, src, sx, sy, sw, sh, dw, dh) {
     scratchCtx.globalCompositeOperation = "source-over";
   }
   const doKey = !!p.chromaKey, temp = +p.temperature || 0, tint = +p.tint || 0;
+  const maskSettings = BackgroundMask.settings(mask ? p : {});
   const split = Math.round(clamp(+p.rgbSplit || 0, 0, 60) * (w / Math.max(1, dw)));
-  if (doKey || temp || tint || split > 0) {
+  if (doKey || temp || tint || split > 0 || maskSettings.threshold > 0) {
     const img = scratchCtx.getImageData(0, 0, w, h);
     const d = img.data;
     if (split > 0) { // chromatic aberration: shift R left→, B →right
@@ -11472,6 +11533,7 @@ function pixelPass(c, p, src, sx, sy, sw, sh, dw, dh) {
     const tShift = temp * 0.6, gShift = tint * 0.5;
     for (let i = 0; i < d.length; i += 4) {
       let r = d[i], g = d[i + 1], b = d[i + 2];
+      if (maskSettings.threshold > 0) d[i + 3] = Math.round(255 * BackgroundMask.alpha(d[i + 3] / 255, maskSettings));
       if (doKey) {
         const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
         const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
@@ -11492,6 +11554,32 @@ function pixelPass(c, p, src, sx, sy, sw, sh, dw, dh) {
     scratchCtx.putImageData(img, 0, 0);
   }
   return scratch;
+}
+
+/* Alpha-outline for keyed media. One reusable canvas, no extra media players or
+   inference. Existing stroke props use destination pixels, like text strokes. */
+const mediaStroke = document.createElement("canvas");
+function drawMediaStroke(target, source, p, dw, dh) {
+  const width = clamp(+p.strokeWidth || 0, 0, 100);
+  if (!width || !(dw > 0 && dh > 0)) return;
+  const w = source.width, h = source.height;
+  const rx = Math.max(1, Math.ceil(width * w / dw)), ry = Math.max(1, Math.ceil(width * h / dh));
+  const sw = w + rx * 2, sh = h + ry * 2;
+  if (mediaStroke.width !== sw) mediaStroke.width = sw;
+  if (mediaStroke.height !== sh) mediaStroke.height = sh;
+  const g = compositorContext(mediaStroke);
+  g.clearRect(0, 0, sw, sh);
+  g.globalCompositeOperation = "source-over";
+  for (let i = 0; i < 16; i++) {
+    const angle = i * Math.PI / 8;
+    g.drawImage(source, rx + Math.cos(angle) * rx, ry + Math.sin(angle) * ry);
+  }
+  g.globalCompositeOperation = "source-in";
+  g.fillStyle = p.strokeColor || "#000000";
+  g.fillRect(0, 0, sw, sh);
+  g.globalCompositeOperation = "source-over";
+  const px = rx * dw / w, py = ry * dh / h;
+  target.drawImage(mediaStroke, -dw / 2 - px, -dh / 2 - py, dw + 2 * px, dh + 2 * py);
 }
 
 /* ═══════════ COLOR GRADE (props.grade — math in color.js) ═══════════
@@ -13000,8 +13088,8 @@ function drawClipPicture(c, W, H, t, layered) {
       ctx2d.roundRect(-dw / 2, -dh / 2, dw, dh, Math.min(+p.cornerRadius, dw / 2, dh / 2));
       ctx2d.clip();
     }
-    if (p.bgRemove && c.kind === "video") requestMask(c.id, src); // refresh person mask
-    if (p.bgRemove && c.kind === "image" && !bgSeg.masks.get(c.id)) requestMask(c.id, src);
+    if (!state.rendering && p.bgRemove && c.kind === "video") requestMask(c.id, src); // preview only; forced frames already prepared
+    if (!state.rendering && p.bgRemove && c.kind === "image" && !bgSeg.masks.get(c.id)) requestMask(c.id, src);
     ctx2d.filter = buildFilter(p);
     const grade = activeGrade(c, p, t), matte = gradeMatte(c);
     let graded = null;
@@ -13011,10 +13099,11 @@ function drawClipPicture(c, W, H, t, layered) {
       let processed = pixelPass(c, p, src, sx, sy, cw, ch, dw, dh);
       if (runtime.gradeCapture) { // pixelPass reuses its canvas — keep a copy
         const cp = document.createElement("canvas"); cp.width = processed.width; cp.height = processed.height;
-        cp.getContext("2d").drawImage(processed, 0, 0);
+        compositorContext(cp).drawImage(processed, 0, 0);
         captureGradeInput(c, [cp, 0, 0, cp.width, cp.height, cp.width, cp.height, dw, dh]);
       }
       if (grade) processed = gradeSource(processed, 0, 0, processed.width, processed.height, processed.width, processed.height, dw, dh, grade, matte) || processed;
+      drawMediaStroke(ctx2d, processed, p, dw, dh);
       ctx2d.drawImage(processed, 0, 0, processed.width, processed.height, -dw / 2, -dh / 2, dw, dh);
     } else if (captureGradeInput(c, [src, sx, sy, cw, ch, sw, sh, dw, dh]), grade && (graded = gradeSource(src, sx, sy, cw, ch, sw, sh, dw, dh, grade, matte))) {
       ctx2d.drawImage(graded, 0, 0, graded.width, graded.height, -dw / 2, -dh / 2, dw, dh);
@@ -13047,7 +13136,7 @@ function maskCtx(key, W, H) {
   if (!cv) cv = maskCv[key] = document.createElement("canvas");
   if (cv.width !== W) cv.width = W;
   if (cv.height !== H) cv.height = H;
-  return cv.getContext("2d", { willReadFrequently: false });
+  return compositorContext(cv, { willReadFrequently: false });
 }
 const maskNorm = new WeakMap();   // stored list → validated list (hand-written JSON gets defaults once)
 function clipMasks(c) {
@@ -16053,6 +16142,9 @@ function frameDue(now) {
   return true;
 }
 function loop(ts) {
+  // Frozen documents execute explicit job/seek/asset/frame steps. Interactive
+  // rulers, inspectors and caption watchers have no consumer or wakeup here.
+  if (compositorReadback) return;
   if (lastTs == null) lastTs = ts;
   const dt = Math.min(0.1, (ts - lastTs) / 1000);
   lastTs = ts;
@@ -16105,7 +16197,9 @@ function loop(ts) {
       sc.scrollLeft = Math.max(0, px - 60);
   }
   const draw = frameDue(ts);
-  if (!state.rendering) { // fast export owns media seeking + the canvas
+  // A foreground renderer owns its pixels while the interactive loop remains
+  // available for the rest of that editor's UI.
+  if (!state.rendering) {
     if (isSourceMode()) {
       syncSourceMedia();
       if (draw) drawSourceFrame();
@@ -16719,28 +16813,15 @@ function exportSourceCanvas() {
   if (!exportCropCanvas) exportCropCanvas = document.createElement("canvas");
   if (exportCropCanvas.width !== ef.w) exportCropCanvas.width = ef.w;
   if (exportCropCanvas.height !== ef.h) exportCropCanvas.height = ef.h;
-  if (!exportCropCtx) exportCropCtx = exportCropCanvas.getContext("2d", { alpha: false });
+  if (!exportCropCtx) exportCropCtx = compositorContext(exportCropCanvas, { alpha: false });
   exportCropCtx.drawImage(els.preview, ef.x, ef.y, ef.w, ef.h, 0, 0, ef.w, ef.h);
   return exportCropCanvas;
 }
-let exportSnapOff = null, exportSnapCtx = null;
-/** Synchronous snapshot so the compositor can draw the next frame immediately.
- *  JPEG encode runs off-thread from the ImageBitmap. */
+/** Pin CPU pixels synchronously before the compositor advances. A transferred
+ *  GPU-backed ImageBitmap can become unreadable later, even on a CPU canvas. */
 function snapshotExportFrame() {
   const src = exportSourceCanvas();
-  try {
-    if (typeof OffscreenCanvas === "function") {
-      if (!exportSnapOff || exportSnapOff.width !== src.width || exportSnapOff.height !== src.height) {
-        exportSnapOff = new OffscreenCanvas(src.width, src.height);
-        exportSnapCtx = exportSnapOff.getContext("2d", { alpha: false });
-      }
-      exportSnapCtx.drawImage(src, 0, 0);
-      if (typeof exportSnapOff.transferToImageBitmap === "function")
-        return { kind: "bmp", bmp: exportSnapOff.transferToImageBitmap() };
-    }
-    const img = src.getContext("2d").getImageData(0, 0, src.width, src.height);
-    return { kind: "rgba", data: img.data, w: src.width, h: src.height };
-  } catch (e) { throw canvasTaintError(e); }
+  return { kind: "rgba", data: snapshotExportRgba(), w: src.width, h: src.height };
 }
 let exportRgbaOff = null, exportRgbaCtx = null;
 /** Raw RGBA of the frame, for outputs that keep more than JPEG's 4:2:0 8-bit
@@ -16759,23 +16840,57 @@ function snapshotExportRgba() {
   } catch (e) { throw canvasTaintError(e); }
 }
 const JPEG_WORKER_SRC = `"use strict";
-self.onmessage = async (e) => {
-  const { id, bmp, quality } = e.data;
-  try {
-    const c = new OffscreenCanvas(bmp.width, bmp.height);
-    const ctx = c.getContext("2d", { alpha: false });
-    ctx.drawImage(bmp, 0, 0);
-    bmp.close();
-    const blob = await c.convertToBlob({ type: "image/jpeg", quality: quality || 0.92 });
-    const buf = await blob.arrayBuffer();
-    self.postMessage({ id, buf }, [buf]);
-  } catch (err) {
-    try { bmp.close(); } catch {}
-    self.postMessage({ id, error: String(err && err.message || err) });
+let canvas = null, context = null, cpuReadback = false, recoveredReadback = false;
+let pending = Promise.resolve();
+function releaseCanvas() {
+  if (canvas) { canvas.width = 0; canvas.height = 0; }
+  canvas = null; context = null;
+}
+async function encodeSnapshot(bmp, data, width, height, quality) {
+  const w = bmp ? bmp.width : width, h = bmp ? bmp.height : height;
+  if (data && !cpuReadback) { releaseCanvas(); cpuReadback = true; }
+  if (!canvas || canvas.width !== w || canvas.height !== h) {
+    releaseCanvas();
+    canvas = new OffscreenCanvas(w, h);
+    context = canvas.getContext("2d", { alpha: false, willReadFrequently: cpuReadback });
+    if (!context) throw new Error("JPEG readback context unavailable");
   }
+  if (data) {
+    if (data.byteLength !== w * h * 4) throw new Error("invalid JPEG pixel snapshot");
+    context.putImageData(new ImageData(new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), w, h), 0, 0);
+  } else context.drawImage(bmp, 0, 0);
+  const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: quality || 0.92 });
+  return blob.arrayBuffer();
+}
+// Keep one backing store per worker and finish its readback before drawing another frame.
+self.onmessage = (e) => {
+  pending = pending.then(async () => {
+    const { id, bmp, data, width, height, quality } = e.data;
+    let readbackRecovery = false;
+    try {
+      let buf;
+      try { buf = await encodeSnapshot(bmp, data, width, height, quality); }
+      catch (err) {
+        // Re-encode this exact retained snapshot once. Never seek, redraw or skip a frame.
+        if (err?.name !== "EncodingError" || recoveredReadback) throw err;
+        releaseCanvas();
+        cpuReadback = true;
+        recoveredReadback = true;
+        readbackRecovery = true;
+        buf = await encodeSnapshot(bmp, data, width, height, quality);
+      }
+      self.postMessage({ id, buf, ...(readbackRecovery ? { readbackRecovery: true } : {}) }, [buf]);
+    } catch (err) {
+      const message = String(err && err.message || err);
+      self.postMessage({ id, error: message + (readbackRecovery ? " (same-frame CPU readback recovery failed)" : ""),
+        ...(readbackRecovery ? { readbackRecovery: true } : {}) });
+    } finally {
+      if (bmp) try { bmp.close(); } catch {}
+    }
+  });
 };
 `;
-function createJpegWorkers(n) {
+function createJpegWorkers(n, timeoutMs = 30_000) {
   if (typeof Worker !== "function" || typeof OffscreenCanvas !== "function") return null;
   let url;
   try { url = URL.createObjectURL(new Blob([JPEG_WORKER_SRC], { type: "text/javascript" })); }
@@ -16790,29 +16905,64 @@ function createJpegWorkers(n) {
   }
   URL.revokeObjectURL(url);
   const pending = new Map();
+  const readbackRecoveries = [];
   let nextId = 0, rr = 0;
+  const failed = new Set();
+  const failWorker = (w, message) => {
+    failed.add(w);
+    for (const [id, rec] of pending) {
+      if (rec.worker !== w) continue;
+      pending.delete(id);
+      clearTimeout(rec.timer);
+      rec.reject(new Error("JPEG frame " + rec.frame + ": " + message));
+    }
+    // The transferred bitmaps belong to this worker. Stop it to release them;
+    // never replace the worker, re-render a frame or continue an incomplete stream.
+    try { w.terminate(); } catch {}
+  };
   for (const w of workers) {
     w.onmessage = (e) => {
       const rec = pending.get(e.data.id);
       if (!rec) return;
       pending.delete(e.data.id);
-      if (e.data.error) rec.reject(new Error(e.data.error));
+      clearTimeout(rec.timer);
+      if (e.data.readbackRecovery) readbackRecoveries.push({ frame: rec.frame, reason: "EncodingError", readback: "cpu" });
+      if (e.data.error) rec.reject(new Error("JPEG frame " + rec.frame + ": " + e.data.error));
       else rec.resolve(e.data.buf);
     };
-    w.onerror = () => {};
+    w.onerror = (event) => failWorker(w, "worker failed: " + String(event?.message || "unknown worker error").slice(0, 300));
+    w.onmessageerror = () => failWorker(w, "worker response could not be decoded");
   }
-  return {
-    encode(bmp, quality) {
+  function postFrame(payload, transfers, frame) {
       const id = nextId++;
       const w = workers[rr++ % workers.length];
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-        try { w.postMessage({ id, bmp, quality }, [bmp]); }
-        catch (e) { pending.delete(id); reject(e); }
+        if (failed.has(w)) {
+          if (payload.bmp) try { payload.bmp.close(); } catch {}
+          reject(new Error("JPEG frame " + frame + ": worker is unavailable"));
+          return;
+        }
+        const rec = { resolve, reject, worker: w, frame: Number.isInteger(frame) ? frame : id };
+        rec.timer = setTimeout(() => failWorker(w, "worker did not return a frame within " + timeoutMs + "ms"), timeoutMs);
+        pending.set(id, rec);
+        try { w.postMessage({ id, ...payload }, transfers); }
+        catch (e) {
+          pending.delete(id); clearTimeout(rec.timer);
+          if (payload.bmp) try { payload.bmp.close(); } catch {}
+          reject(new Error("JPEG frame " + rec.frame + ": " + String(e.message || e)));
+        }
       });
+  }
+  return {
+    encode(bmp, quality, frame) { return postFrame({ bmp, quality }, [bmp], frame); },
+    encodePixels(data, width, height, quality, frame) {
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 || data?.byteLength !== width * height * 4)
+        return Promise.reject(new Error("JPEG frame " + frame + ": invalid pixel snapshot"));
+      return postFrame({ data, width, height, quality }, [data.buffer], frame);
     },
+    readbackRecoveries() { return readbackRecoveries.map(item => ({ ...item })); },
     terminate() {
-      for (const rec of pending.values()) rec.reject(new Error("cancelled"));
+      for (const rec of pending.values()) { clearTimeout(rec.timer); rec.reject(new Error("cancelled")); }
       pending.clear();
       for (const w of workers) try { w.terminate(); } catch { }
     },
@@ -16826,11 +16976,40 @@ function jpegFromBitmap(bmp, quality) {
   return new Promise((res, rej) => {
     try {
       c.toBlob((b) => {
+        c.width = 0;
+        c.height = 0;
         if (!b) return rej(new Error("frame encode failed"));
         b.arrayBuffer().then(res, rej);
       }, "image/jpeg", quality);
-    } catch (e) { rej(canvasTaintError(e)); }
+    } catch (e) {
+      c.width = 0;
+      c.height = 0;
+      rej(canvasTaintError(e));
+    }
   });
+}
+/** Workerless CPU fallback: each bounded in-flight frame owns its canvas. */
+function jpegFromPixels(data, width, height, quality) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const release = () => { canvas.width = 0; canvas.height = 0; };
+  try {
+    canvas.getContext("2d", { alpha: false, willReadFrequently: true })
+      .putImageData(new ImageData(new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), width, height), 0, 0);
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(blob => blob ? blob.arrayBuffer().then(resolve, reject) : reject(new Error("frame encode failed")), "image/jpeg", quality);
+    }).finally(release);
+  } catch (error) { release(); return Promise.reject(canvasTaintError(error)); }
+}
+/** Bound asynchronous frame work below the owner's stall limit, preserving the
+ *  exact frame and step on failure. Late settlement is observed, never retried. */
+function awaitExportStep(run, stage, frame, timeoutMs = 45_000) {
+  let timer;
+  return Promise.race([
+    Promise.resolve().then(run),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("did not finish within " + timeoutMs + "ms")), timeoutMs); }),
+  ]).catch(error => { throw new Error("EXPORT_FRAME " + frame + " " + stage + ": " + String(error?.message || error)); })
+    .finally(() => clearTimeout(timer));
 }
 /** Preview may already be tainted (cross-origin PiP, old data: SVG). Resetting
  *  width clears the bitmap and the origin-clean flag; export redraws each frame. */
@@ -16844,8 +17023,9 @@ function resetExportCanvases() {
   scratch.width = scratch.width;
   if (pixGL.stage) pixGL.stage.width = pixGL.stage.width;   // the GPU pixel pass keeps these between frames
   pixGL.outs.clear();
-  exportSnapOff = null;
-  exportSnapCtx = null;
+  if (exportRgbaOff) { exportRgbaOff.width = 0; exportRgbaOff.height = 0; }
+  exportRgbaOff = null;
+  exportRgbaCtx = null;
 }
 function waitMediaEl(el, ms = 2500) {
   if (el.readyState >= 2 && !(el.error)) return Promise.resolve();
@@ -16922,13 +17102,18 @@ function createExportUploader(sessId, { batchItems, batchBytes, signal, getError
   const enqueueUpload = (body) => {
     uploadsInFlight++;
     const p = uploadTail.catch(() => {}).then(async () => {
-      if (cancelled()) throw new Error("cancelled");
-      const err = getError();
-      if (err) throw err;
-      const r = await fetch("/api/export/frame?id=" + sessId, {
-        method: "POST", body, signal,
-      });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "frame upload failed");
+      try {
+        if (cancelled()) throw new Error("cancelled");
+        const err = getError();
+        if (err) throw err;
+        const r = await fetch("/api/export/frame?id=" + sessId, {
+          method: "POST", body, signal,
+        });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "frame upload failed");
+        await r.arrayBuffer(); // headers alone do not finish the response's lifetime
+      } finally {
+        body = null;
+      }
     });
     uploadTail = p.catch((err) => {
       if (!getError()) setError(err);
@@ -17035,29 +17220,59 @@ function notePresented(el, mediaTime) {
 function presentedClose(el, mt, eps) {
   return el._fcPresentedTime != null && Math.abs(el._fcPresentedTime - mt) <= eps;
 }
-function waitForPresentedFrame(el, timeoutMs = 80) {
+/** Only real presented samples establish the source frame's half-open interval. */
+function sourceFrameContains(el, mt, shown) {
+  const dur = el._fcFrameDur;
+  return shown != null && el._fcFrameSeen >= 3 && dur > 0 &&
+    mt >= shown - 1e-4 && mt < shown + dur - 1e-4;
+}
+function presentedContains(el, mt) {
+  return el._fcPresentedTime === el._fcLastShown && sourceFrameContains(el, mt, el._fcPresentedTime);
+}
+function waitForPresentedFrame(el, timeoutMs = 80, targetTime = null, afterSeek = null) {
   return new Promise((res, rej) => {
     if (typeof el.requestVideoFrameCallback !== "function") {
-      notePresented(el, el.currentTime);
+      el._fcPresentedTime = el.currentTime;
       res();
       return;
     }
-    let done = false;
-    const finishOk = (meta) => {
+    let done = false, tm, callbackId;
+    const previousShown = el._fcLastShown;
+    const finishOk = (meta, knownSameFrame = false) => {
       const mediaTime = meta?.mediaTime;
       if (!Number.isFinite(mediaTime)) return;
       if (done) return;
+      // A callback already queued before the seek can describe the old picture.
+      // Accept the actual source frame containing the requested media time.
+      const stale = !knownSameFrame && previousShown != null && Math.abs(mediaTime - previousShown) < 1e-6;
+      const duration = el._fcFrameSeen >= 3 ? el._fcFrameDur : 1 / 20;
+      if (targetTime != null && (stale || !(mediaTime <= targetTime + 1e-4 &&
+          targetTime < mediaTime + duration - 1e-4))) {
+        callbackId = el.requestVideoFrameCallback((_n, next) => finishOk(next));
+        return;
+      }
       done = true;
       clearTimeout(tm);
+      if (callbackId != null && typeof el.cancelVideoFrameCallback === "function")
+        el.cancelVideoFrameCallback(callbackId);
       notePresented(el, mediaTime);
       res();
     };
-    const tm = setTimeout(() => {
+    const startTimeout = () => {
       if (done) return;
-      done = true;
-      rej(new Error("presented frame timeout"));
-    }, timeoutMs);
-    el.requestVideoFrameCallback((_n, meta) => finishOk(meta));
+      tm = setTimeout(() => {
+        if (done) return;
+        done = true;
+        if (callbackId != null && typeof el.cancelVideoFrameCallback === "function")
+          el.cancelVideoFrameCallback(callbackId);
+        rej(new Error("presented frame timeout"));
+      }, timeoutMs);
+    };
+    if (afterSeek) afterSeek.then(shown => {
+      if (Number.isFinite(shown)) finishOk({ mediaTime: shown }, true);
+      else startTimeout();
+    }); else startTimeout();
+    callbackId = el.requestVideoFrameCallback((_n, meta) => finishOk(meta));
   });
 }
 function assignVideoTime(el, mt, accurate) {
@@ -17070,17 +17285,16 @@ function assignVideoTime(el, mt, accurate) {
 /** A finished seek to mt still shows the frame presented at `shown`: mt lies inside that one
  *  source frame, by the frame duration learned from presented frames (unknown → no). */
 function sameSourceFrame(el, mt, shown) {
-  const dur = el._fcFrameDur;
-  if (shown == null || !(el._fcFrameSeen >= 3) || !(dur > 0)) return false;
-  return el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002 &&
-    mt >= shown - 1e-4 && mt < shown + dur - 1e-4;
+  return shown === el._fcLastShown && el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002 &&
+    sourceFrameContains(el, mt, shown);
 }
 function hardSeekVideo(el, mt, attempt = 0, shown = el._fcPresentedTime) {
   const hasRvfc = typeof el.requestVideoFrameCallback === "function";
   const maxAttempts = 3;
   return new Promise((res, rej) => {
+    let presentation, seekCompleted;
     // a busy frame (grades, masks, blur) can present late: each retry waits longer
-    const after = () => waitForPresentedFrame(el, [80, 250, 600][attempt] || 600)
+    const after = () => (presentation || waitForPresentedFrame(el, [80, 250, 600][attempt] || 600))
       .then(res)
       .catch((err) => {
         // Slow motion lands several output frames on one source frame: seeking within the
@@ -17091,7 +17305,12 @@ function hardSeekVideo(el, mt, attempt = 0, shown = el._fcPresentedTime) {
         if (attempt + 1 < maxAttempts) { hardSeekVideo(el, mt, attempt + 1, shown).then(res, rej); return; }
         // Last try: the seek finished on mt with the frame's data loaded, so the element holds
         // that frame even though no callback reported it. Better than failing the whole export.
-        if (el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002) { notePresented(el, mt); res(); return; }
+        if (el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002) {
+          // This is a clock fallback, not an observed source-frame timestamp.
+          // Do not train the source frame-duration estimate on output clocks.
+          el._fcPresentedTime = mt;
+          res(); return;
+        }
         rej(err);
       });
     if (presentedClose(el, mt, 0.002) && el.readyState >= 2) {
@@ -17101,7 +17320,7 @@ function hardSeekVideo(el, mt, attempt = 0, shown = el._fcPresentedTime) {
     // No rvfc — paused on the right clock is the only signal we have.
     if (!hasRvfc && el._fcPresentedTime == null && el.paused && el.readyState >= 2
         && Math.abs(el.currentTime - mt) < 1e-4) {
-      notePresented(el, el.currentTime);
+      el._fcPresentedTime = el.currentTime;
       res();
       return;
     }
@@ -17109,10 +17328,18 @@ function hardSeekVideo(el, mt, attempt = 0, shown = el._fcPresentedTime) {
     const done = () => {
       clearTimeout(tm);
       el.removeEventListener("seeked", done);
+      seekCompleted?.(sameSourceFrame(el, mt, shown) ? shown : undefined);
       after();
     };
     const tm = setTimeout(done, 1500);
     el.addEventListener("seeked", done);
+    // Register before assigning currentTime: Chromium can present the sought
+    // frame before dispatching seeked. Count its wait budget only after seeked.
+    if (hasRvfc) {
+      const seekReady = new Promise(resolve => { seekCompleted = resolve; });
+      presentation = waitForPresentedFrame(el, [80, 250, 600][attempt] || 600, mt, seekReady);
+      presentation.catch(() => {}); // after() owns the result, including timeout
+    }
     try {
       if (!el.paused) el.pause();
       // Same currentTime does not fire seeked — nudge so the decoder must present mt.
@@ -17149,19 +17376,20 @@ function playAdvanceVideo(el, mt, eps, rate, { keepPlaying } = {}) {
       if (settled) return;
       if (!Number.isFinite(presented)) return;
       settled = true;
-      notePresented(el, presented);
+      if (typeof el.requestVideoFrameCallback === "function") notePresented(el, presented);
+      else el._fcPresentedTime = presented;
       cleanup();
       // Presented picture is authoritative — currentTime often runs ahead of
       // the displayed frame. Accept when within [mt-slop, mt]; hard-seek when
       // play-ahead overshoots past mt or the picture is still short.
-      const pictureShort = presented < mt - slop * 2;
+      const pictureShort = !sourceFrameContains(el, mt, presented) && presented < mt - slop * 2;
       const pictureOvershoot = presented > mt;
       if (pictureOvershoot
         || (pictureShort && Math.abs(el.currentTime - mt) > Math.max(eps * 2, 0.008)))
         hardSeekVideo(el, mt).then(res, rej);
       else res();
     };
-    if (presentedClose(el, mt, slop) && el.readyState >= 2) {
+    if ((presentedClose(el, mt, slop) || presentedContains(el, mt)) && el.readyState >= 2 && !el.seeking) {
       if (!keepPlaying) { try { el.pause(); } catch { } }
       res();
       return;
@@ -17176,7 +17404,7 @@ function playAdvanceVideo(el, mt, eps, rate, { keepPlaying } = {}) {
     const check = (mediaTime) => {
       // Presented frame only — currentTime finishes half a frame early and
       // canvas still holds the previous picture (duplicate Fast frames).
-      if (mediaTime != null && mediaTime >= mt - slop) finish(mediaTime);
+      if (mediaTime != null && (mediaTime >= mt - slop || sourceFrameContains(el, mt, mediaTime))) finish(mediaTime);
     };
     try { el.playbackRate = clamp(rate, 0.1, 8); } catch { }
     // muted → autoplay-friendly after async export setup (user-gesture may be gone)
@@ -17398,9 +17626,14 @@ async function seekVideosTo(t, { queueBusy } = {}) {
     if (c.kind !== "video") continue;
     if (!clipRenders(c)) continue;
     if (decoded.has(c.id)) continue;
-    const el = getClipEl(c);
-    if (!el) { if (activeAt(c, t)) assertExportVideoFrame(c, t); continue; }
-    if (!activeAt(c, t)) {
+    const active = activeAt(c, t);
+    const el = active ? getClipEl(c) : runtime.clipEls.get(c.id);
+    if (!el) { if (active) assertExportVideoFrame(c, t); continue; }
+    if (!active) {
+      if (runtime.forceOriginals && clipEnd(c) <= t) {
+        releaseClipEl(c.id);
+        continue;
+      }
       if (!el.paused) el.pause();
       if (el._fcPrevMuted != null) {
         try { el.muted = el._fcPrevMuted; } catch { }
@@ -17421,7 +17654,9 @@ async function seekVideosTo(t, { queueBusy } = {}) {
     // Skip only when the *presented* picture is already the target. currentTime
     // within ½ frame is not enough — Fast export used to snapshot the previous
     // decoded frame twice while the clock had already ticked.
-    if (el.readyState >= 2 && presentedClose(el, mt, slop)) {
+    if (el.readyState >= 2 && !el.seeking &&
+        (presentedClose(el, mt, slop) || presentedContains(el, mt))) {
+      if (!keepPlaying && !el.paused) el.pause();
       if (keepPlaying && !el.paused) {
         try { el.playbackRate = sp; } catch { }
       }
@@ -17480,17 +17715,23 @@ function encodeWAV(buf) {
    and fades. t0/t1 are timeline seconds (export window); mix time 0 is t0. */
 const FX_AUTOMATION_STEP = 0.02; // export automation resolution, seconds
 async function renderAudioMix(t0, t1) {
+  const dur = Math.max(0, t1 - t0);
+  if (dur <= 0) return null;
   const jobs = [];
   for (const c of mediaClips()) {
     if (c.kind !== "audio" && c.kind !== "video") continue;
     if (!clipRenders(c)) continue;
+    if (Math.min(c.start + c.duration, t1) - Math.max(c.start, t0) <= 1e-6) continue;
     const m = getMedia(c.mediaId); if (!m) continue;
-    jobs.push(getAudioBuffer(m).then((buf) => ({ c, buf })).catch(() => null));
+    // An explicitly constant zero-volume source contributes silence. Keep its
+    // audio-track presence without fetching/decoding the original picture.
+    // Any volume automation stays on the ordinary path, including a later unmute.
+    jobs.push(c.props?.volume === 0 && !c.keyframes?.volume?.length
+      ? Promise.resolve({ c, buf: null })
+      : getAudioBuffer(m).then((buf) => ({ c, buf })).catch(() => null));
   }
   const sources = (await Promise.all(jobs)).filter(Boolean);
   if (!sources.length) return null;
-  const dur = Math.max(0, t1 - t0);
-  if (dur <= 0) return null;
   const sr = 48000;
   const off = new OfflineAudioContext(2, Math.ceil(dur * sr) + 1, sr);
   await loadFxWorklet(off); // gate / limiter render in the export too
@@ -17502,6 +17743,7 @@ async function renderAudioMix(t0, t1) {
   for (const { c, buf } of sources) {
     const a = Math.max(c.start, t0), b = Math.min(c.start + c.duration, t1);
     if (b - a <= 1e-6) continue;
+    if (!buf) { scheduled = true; continue; } // preserve a silent mix/track
     const mixWhen = Math.max(0, a - t0);
     const mixDur = b - a;
     const local0 = a - c.start;
@@ -17565,10 +17807,18 @@ async function renderAudioMix(t0, t1) {
 async function prepareFrameAssets(t) {
   for (const c of mediaClips()) {
     if (!activeAt(c, t) || !clipRenders(c)) continue;
-    if (c.kind === "svg") await prepareSvgFrame(c, t);
+    if (c.kind === "svg") {
+      try { await prepareSvgFrame(c, t); }
+      catch (error) { throw new Error(`SVG_FRAME_UNAVAILABLE: ${c.id} at ${t.toFixed(3)}s: ${error && error.message || error}`); }
+    }
     if (c.props?.bgRemove && (c.kind === "video" || c.kind === "image")) {
       const el = c.kind === "video" ? getClipEl(c) : runtime.mediaAux.get(c.mediaId)?.img;
-      if (el) { try { await requestMask(c.id, el, true); } catch { } }
+      try {
+        if (!el) throw new Error("segmentation source unavailable");
+        await requestMask(c.id, el, true);
+      } catch (error) {
+        throw new Error(`BACKGROUND_MASK_UNAVAILABLE: ${c.id} at ${t.toFixed(3)}s: ${error && error.message || error}`);
+      }
     }
   }
 }
@@ -17744,32 +17994,28 @@ async function fastExport(opts = {}) {
       // enough that play-ahead would overrun during the wait (not on every blip).
       const queueBusy = pixelsInflight > 6 || up.inFlight() > 4;
       if (pixelsInflight > 4) pauseExportVideos();
-      await waitPixels(6);
-      await up.waitBackpressure(4);
+      await awaitExportStep(() => waitPixels(6), "pixel-backpressure", f);
+      await awaitExportStep(() => up.waitBackpressure(4), "upload-backpressure", f);
       const t = t0 + f / fps;
       state.time = t;
-      await seekVideosTo(t, { queueBusy });
-      await prepareFrameAssets(t);
+      await awaitExportStep(() => seekVideosTo(t, { queueBusy }), "video-seek", f);
+      await awaitExportStep(() => prepareFrameAssets(t), "frame-assets", f);
       drawFrame(t);
-      const snap = rgba ? { kind: "raw", px: snapshotExportRgba() } : snapshotExportFrame();
+      let snap;
+      try { snap = rgba ? { kind: "raw", px: snapshotExportRgba() } : snapshotExportFrame(); }
+      catch (error) { throw new Error("EXPORT_FRAME " + f + " snapshot: " + String(error?.message || error)); }
       pixelsInflight++;
       let jpegP;
       if (snap.kind === "raw") jpegP = Promise.resolve(snap.px);
       else if (snap.kind === "bmp") {
-        jpegP = workers ? workers.encode(snap.bmp, jpegQ) : jpegFromBitmap(snap.bmp, jpegQ);
+        jpegP = workers ? workers.encode(snap.bmp, jpegQ, f) : jpegFromBitmap(snap.bmp, jpegQ);
       } else {
-        const c = document.createElement("canvas");
-        c.width = snap.w; c.height = snap.h;
-        c.getContext("2d", { alpha: false }).putImageData(new ImageData(snap.data, snap.w, snap.h), 0, 0);
-        jpegP = new Promise((res, rej) => {
-          try {
-            c.toBlob((b) => {
-              if (!b) return rej(new Error("frame encode failed"));
-              b.arrayBuffer().then(res, rej);
-            }, "image/jpeg", jpegQ);
-          } catch (e) { rej(canvasTaintError(e)); }
-        });
+        jpegP = workers ? workers.encodePixels(snap.data, snap.w, snap.h, jpegQ, f)
+          : jpegFromPixels(snap.data, snap.w, snap.h, jpegQ);
       }
+      // A later worker can fail before the ordered chain reaches it. Observe it
+      // immediately so backpressure exits and no rejection is silently orphaned.
+      jpegP.catch(setError);
       pixelChain = pixelChain.then(async () => {
         if (renderCancelled || signal.aborted) throw new Error("cancelled");
         if (uploadError) throw uploadError;
@@ -17777,16 +18023,18 @@ async function fastExport(opts = {}) {
         if (!buf || !(buf.byteLength || buf.size || buf.length)) throw new Error("frame encode failed");
         up.push(buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf);
       }).catch((err) => { setError(err); throw err; }).finally(() => { pixelsInflight--; });
+      pixelChain.catch(() => {}); // consumed in order below, including while a frame step awaits
       const pct = ((f + 1) / frames) * 100;
       els.exportProgress.style.width = pct.toFixed(1) + "%";
       els.exportTitle.textContent = `Rendering… ${pct.toFixed(0)}%`;
       if (opts.onProgress) opts.onProgress(0.97 * (f + 1) / frames);
-      if (job) reportExportJob(job, { progress: 0.97 * (f + 1) / frames });
+      if (job) reportExportJob(job, { progress: 0.97 * (f + 1) / frames }, false,
+        () => exportFrameResources(f + 1, pixelsInflight, up.inFlight(), workers));
     }
-    await pixelChain;
+    await awaitExportStep(() => pixelChain, "jpeg-drain", frames - 1);
     if (uploadError) throw uploadError;
     els.exportTitle.textContent = "Encoding…";
-    await up.done();
+    await awaitExportStep(() => up.done(), "upload-drain", frames - 1);
     if (uploadError) throw uploadError;
     } finally {
       try { workers?.terminate(); } catch { }
@@ -17794,9 +18042,12 @@ async function fastExport(opts = {}) {
     const end = await fetch("/api/export/end?id=" + sessId, { method: "POST", signal }).then((r) => r.json());
     if (!end.src) throw new Error(end.error || "encode failed");
     const outs = end.outputs || [{ file: decodeURIComponent(end.src.split("/").pop()), ok: true, src: end.src }];
+    const readbackRecoveries = workers?.readbackRecoveries() || [];
     // what each output was asked to be, beside what came out
-    result = { outputs: outs.map((o, i) => ({ ...o, ...(begin.outputs && begin.outputs[i] ? { summary: begin.outputs[i].summary, notes: begin.outputs[i].notes } : {}) })) };
-    if (job) await reportExportJob(job, { status: "done", src: end.src, ...(delivery ? { result: { summary: begin.summary, notes: begin.notes || [], outputs: result.outputs } } : {}) }, true);
+    result = { outputs: outs.map((o, i) => ({ ...o, ...(begin.outputs && begin.outputs[i] ? { summary: begin.outputs[i].summary, notes: begin.outputs[i].notes } : {}) })),
+      ...(readbackRecoveries.length ? { diagnostics: { jpegReadbackRecoveries: readbackRecoveries } } : {}) };
+    if (job) await reportExportJob(job, { status: "done", src: end.src, ...(delivery ? { result: { summary: begin.summary, notes: begin.notes || [], outputs: result.outputs,
+      ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}) } } : {}) }, true);
     else if (opts.silent) { /* the queue lists the files */ }
     else if (delivery && result.outputs[0]) {
       const o = result.outputs[0];
@@ -17817,6 +18068,7 @@ async function fastExport(opts = {}) {
       a.click();
     }
   } catch (e) {
+    exportAbort?.abort(); // release outstanding waits/uploads when a frame step fails or times out
     if (sessId) fetch("/api/export/end?id=" + sessId + "&discard=1", { method: "POST" }).catch(() => { });
     const msg = e?.name === "AbortError" ? "cancelled" : String(e.message || e);
     result = { error: msg, cancelled: msg === "cancelled" };
@@ -18022,10 +18274,30 @@ function onBatchListClick(e) {
    and profile and reports back. A cancel from the agent arrives as the reply
    to a progress report. */
 let exportJobReportAt = 0;
-async function reportExportJob(id, body, force = false) {
+/** Counts from this job's actual selected path, not a memory estimate or cause.
+ * No frame, element, source path or decoded buffer is retained in the receipt. */
+function exportFrameResources(frame, pixelsInflight, uploadsInflight, workers) {
+  let decoders = 0, decoderQueuedChunks = 0, decoderQueuedFrames = 0, decoderHeldFrames = 0;
+  for (const src of runtime.exportDecode?.sources.values() || []) {
+    if (!src) continue;
+    decoders++;
+    decoderQueuedChunks += src.dec?.decodeQueueSize || 0;
+    decoderQueuedFrames += src.out?.length || 0;
+    if (src.cur) decoderHeldFrames++;
+  }
+  let htmlVideoElements = 0;
+  for (const el of runtime.clipEls.values()) if (el.tagName === "VIDEO") htmlVideoElements++;
+  return { frame, pixelsInflight, uploadsInflight, jpegWorkerEnabled: workers ? 1 : 0,
+    decoders, decoderQueuedChunks, decoderQueuedFrames, decoderHeldFrames,
+    decodedVideoClips: runtime.exportFrames?.size || 0, htmlVideoElements,
+    audioBufferEntries: runtime.audioBufs.size };
+}
+async function reportExportJob(id, body, force = false, resourceSample) {
   const now = performance.now();
   if (!force && now - exportJobReportAt < 1000) return; // a heartbeat, not a stream
   exportJobReportAt = now;
+  // Observation failure cannot suppress progress or cancellation delivery.
+  if (resourceSample) try { body = { ...body, frameResources: resourceSample() }; } catch { }
   try {
     const r = await fetch("/api/export/job/report?id=" + encodeURIComponent(id), {
       method: "POST", body: JSON.stringify(body),

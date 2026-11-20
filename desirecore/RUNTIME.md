@@ -62,11 +62,31 @@ GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 
 
 后台浏览器由本服务独占 `--remote-debugging-pipe` 的父侧 FD3/FD4，不将父侧管道传给其它子进程。固定 Chromium 156.0.8078.80 的[管道实现](https://chromium.googlesource.com/chromium/src/+/156.0.8078.80/content/browser/devtools/devtools_pipe_handler.cc)在 EOF/error 时调用断联回调；[headless shell](https://chromium.googlesource.com/chromium/src/+/156.0.8078.80/headless/lib/browser/headless_devtools.cc)将该回调绑定到浏览器 Shutdown，普通 Chrome 绑定到 CloseBrowserSoon。服务被强杀时由 OS 关闭管道，无需重启后根据旧 PID 查杀。正常 job 收尾先关闭输入管道，让浏览器自行关闭；3 秒未退出才向仍存活的原 ChildProcess 发 TERM，再等 2 秒才发 KILL，已退出即取消兜底。兜底不等于后代已确认收闭；真实 Chrome 与各 OS 的完整进程树仍须单独验收，纯 Node 管道回归不能代替。
 
+同一独占管道仅 attach 到 URL 精确匹配原 job 的主页面，每10秒读取一次 `Runtime.getHeapUsage` 数字；最多一个未回请求，30秒未回就停止观测。原浏览器全部终态回执保留最多32个样本、总次数及峰值，MCP摘要只显示最后样本/峰值和停止原因。数字按该页面所在 isolate 的合同解释，不是完整进程 RSS，也不覆盖独立 worker。采样不执行页面 JavaScript、不强制 GC、不重试导出或更改120秒失联门限；不支持/销毁/关闭/管道错误会明确停采样，保留已有事实。只靠 heap 或工作集数值仍不能认定 OOM、GPU或驱动根因。
+
+原生 export 的同一 owner 在第13个正常 heap 样本后，仅采一次 light 级 allocator 分布，记录于 `diagnostics.browser.nativeMemory`。它使用既有独占管道、`Tracing.requestMemoryDump` 的 `deterministic:false`，不触发强制GC或新调试端口；trace 分块读取每次16KiB、总量最多64MiB，处理后只留下最多16个进程的类型、RSS及固定 malloc/partition/array-buffer/image-cache/Blink/V8 字节数字。原始 trace、地址、路径和媒体均不进入回执。不支持、超限、超时或 owner 关闭只令观测不可用，不重试、不改变原导出/取消/终态；数字也不能单独证明某一根因。成功、失败、取消及重启均保留原始观测，MCP摘要只输出固定白名单的类型、时间和字节数；观测函数自身异常也不能阻止原终态保存。
+
+冻结导出文档不生成交互时间线波形。离线 mix 只准备实际导出区间内相交且启用的音视频输入；明确恒定 `volume:0` 且没有 volume 关键帧的片段保留相同时长的静音 mix/声轨，不解码原媒体。有 volume 自动化或未明确静音时仍走原解码，交互编辑页的波形、可听输入的路由/效果和响度合同保持。这样避免为波形或静音而读取整份大视频，但不能单凭资源节省认定长导出故障已解决。
+
+冻结 job 文档的交互动画循环从首个 tick 起直接退出，包括异步加载/混音准备期间；不安排后续 UI 唤醒，不反复扫描时间线、绘制标尺、刷新检查器或运行字幕监听，也不通过交互预览预加载未来播放器。原 job 仍显式寻帧、准备素材、调用同一合成器并回报心跳；交互编辑页的 Timeline、Source 和其它视图保留原循环，前台 renderer 渲染期间仍独占该编辑页的 monitor 像素。此资源边界不自行判断任务完成，也不证明长片的自然内存故障已解决。
+
+同一独占管道通过 Chromium `Target.setDiscoverTargets` 观察 `Target.targetCrashed`，不增加调试端口或附着其它浏览器。只有 URL 匹配本 job 的页面崩溃才立即使原 job 失败；保留 Chromium 的实际 status/errorCode，不推断 GPU/OOM。失败回执的 `diagnostics.browser` 保存原浏览器 PID、discovery 状态、最近最多8次目标崩溃、最多16KiB stderr尾部和已观察到的根进程退出事实；目标崩溃条目不保存 URL/标题。PID只作观测，不用于重启后查杀。服务主动关闭后的事件标为 ownerClosing，不改写原终态。协议不支持时明确记录 unsupported，仍按原120秒失联合同处理；失联本身仍不能证明自然崩溃，stderr中可能出现本机路径或URL，应按运行数据保留。
+
 正常收尾只在原浏览器确认 close 后删除本 job 的一次性 profile；转录的保留缓存不删。服务被强杀后无法执行自己的 profile 清理；正常服务停止也可能先于浏览器 close/finalizer 退出，此时不保证 profile 清理或 TERM/KILL 兜底完成，OS 仍会关闭管道。旧一次性 profile 可能留存；重启不扫描临时目录、猜测归属或按旧 PID 补删。此 profile 生命周期与原 job 的 `exports` 临时产物登记、恢复清理和 `cleanup` 回执分别处理，不将 profile 移除冒作编码产物已清理。
 
 原可选 Whisper ASR、MediaPipe、Google Fonts 仍可连接其上游外部资源，模型和动态网络资源不在本原生资产清单内；没有默认收费生成或隐含 Provider。旧 WebCodecs/MediaRecorder UI 实时输出未满足固定输入合同，明确不可用。
 
+原 job 的导出心跳每秒最多一次记录 `diagnostics.frameResources`：只保留最新数字、各项峰值和总采样次数，不随片长积累历史。计数包括已完成帧数（从1开始）、WebCodecs源与排队/持有帧、当前decoded clip数、原job的HTML视频元素数、JPEG worker是否启用、像素/上传队列和音频buffer缓存条目。白名单拒绝路径、媒体ID、任意页面对象和无效数字；原失败/成功/取消和重启均保留，MCP状态查询可见。计数不是内存大小或原因判断，存在HTML元素也不证明当前帧用了它；采样不释放资源、不强制GC、不重试或改变准入/终态。
+
 ## 接入交接与画面准入
+
+JPEG worker 的 error/messageerror 明确拒绝其未完成帧并停止该线程，不静默替换或重做帧；30秒没有 JPEG 返回时带零基帧号失败。异步视频 seek、素材准备、背压与排空在45秒内明确报告 `EXPORT_FRAME <帧号> <步骤>`，失败时终止未完成上传/等待，保留原 job。此边界早于 owner 的120秒失联上限，不能识别完全阻塞的浏览器主线程；只有“停止回报进度”不能证明浏览器崩溃、GPU或内存根因。先据实际步骤与帧调查，再明确新 retry，不自动重启整片。
+
+Fast JPEG 在合成线程推进前复用原有 CPU `getImageData` 原语固定当前帧的 RGBA 字节，转移 buffer 给 worker，再用复用的 CPU 画布编码；最多7份快照背压和原帧序保持。它增加明确的 CPU 读回/传输工作，避免依赖稍后可能失效的 GPU-backed ImageBitmap；不换合成器、效果、分辨率或交付格式。首次 EncodingError 可重建 CPU 画布并用保留的同帧字节编码一次，失败仍终止原 job。生产 workerless 回退同样使用 CPU 像素，并在读回结束或失败时释放其画布。
+
+串行帧上传读完成功响应正文后释放背压。请求结束时清除上传器保存的 payload 引用，保留调用方的 buffer 和数据。
+
+冻结的 `?exportJob=...` 文档首次创建主画布及遮罩、合成、描边、调整、像素暂存和裁剪的 2D context 时统一请求 `willReadFrequently:true`，让浏览器选择适合逐帧读回的存储。交互编辑页保留原调用者选项/默认值，人物模型和像素/调色所需的 WebGL 仍启用。设置本身不证明旧失联是 GPU/驱动导致，仍以真实完整成片和当前环境实测为准。
 
 MCP 尚未配置时，先从平台 `AppAuthoring runtime_read` 取得当前 healthy binding，并用本材料的 `connection --binding-file` 生成已核连接快照。`mcp-config --runtime-file` 输出通用 stdio 启动描述 `{command,args,cwd}`；DesireCore 原 MCP 配置合同还须 `transport:"stdio"`，沿已有授权入口按当前 Schema 应用，下一正常轮次重新发现并真实调用 `fablecut_status` 才能证明连接可用。`docs --section "REST API"` 在服务未启动时也可读取同版权威手册。一般 Bash 进程不因运行在 TaskHost 就取得应用代际；缺合同先沿原纳管流程恢复。
 

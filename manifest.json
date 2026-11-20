@@ -50,7 +50,7 @@
     },
     {
       "name": "fablecut_analyze_reference",
-      "description": "Analyze a reference video into an edit blueprint: shot cuts, beats, BPM, energy curve, drop; extracts its music"
+      "description": "Measure cuts, detected beats/BPM and audio energy; optionally extract the entire reference audio, including speech, without source separation"
     },
     {
       "name": "fablecut_frame",

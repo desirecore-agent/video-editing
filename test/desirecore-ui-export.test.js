@@ -108,7 +108,8 @@ test('a renderer group binds its session owner without reporting aggregate compl
   els:{exportOverlay:node(),exportProgress:node(),exportTitle:node(),exportNote:node()},pause(){},restoreExportVideoState(){},projectFps:()=>24,
   beginExportWindow:()=>({start:0,end:0,frames:0}),renderAudioMix:async()=>null,effectiveEncodeProfileId:()=> 'draft',deliveryCanvas:()=>({w:1280,h:720}),deliveryFileName:()=> 'group',
   fetch:async(url,opts)=>{requests.push({url,body:opts?.body&&JSON.parse(opts.body)});return {json:async()=>url==='/api/export/begin'?{id:'session-real-owner',input:'rgba'}:{src:'/exports/group.mp4'}};},
-  loadProjectFonts:async()=>{},resetExportCanvases(){},armExportCors:async()=>{},useOriginalPlayers:async()=>{},exportDecodeBegin(){},createExportUploader:()=>({done:async()=>{}}),createJpegWorkers:()=>null,navigator:{hardwareConcurrency:2},reportExportJob:(...args)=>reports.push(args),exportDecodeEnd(){},endExportWindow(){},releaseOriginalPlayers(){}};
+  loadProjectFonts:async()=>{},resetExportCanvases(){},armExportCors:async()=>{},useOriginalPlayers:async()=>{},exportDecodeBegin(){},createExportUploader:()=>({done:async()=>{}}),createJpegWorkers:()=>null,navigator:{hardwareConcurrency:2},reportExportJob:(...args)=>reports.push(args),exportDecodeEnd(){},endExportWindow(){},releaseOriginalPlayers(){},
+  awaitExportStep:new Function(slice('function awaitExportStep(','/** Preview may already be tainted')+';return awaitExportStep;')()};
  const names=Object.keys(env),run=new Function(...names,slice('async function fastExport(','/* ── Export queue')+';return fastExport;')(...names.map(k=>env[k]));const result=await run({ownerJob:'aggregate-original',deliveries:[{delivery:{fps:24}}],silent:true});assert.equal(requests[0].body.job,'aggregate-original');assert.equal(result.outputs[0].ok,true);assert.deepEqual(reports,[],'a group has an owner but cannot mark that owner done');
 });
 function mixedWorld(cancelSecond=false){
