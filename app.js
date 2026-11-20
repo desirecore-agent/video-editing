@@ -11192,8 +11192,14 @@ function ensureBgSeg() {
         if (!bgSeg.currentClip) return;
         let cv = bgSeg.masks.get(bgSeg.currentClip);
         if (!cv) { cv = document.createElement("canvas"); bgSeg.masks.set(bgSeg.currentClip, cv); }
-        cv.width = r.segmentationMask.width; cv.height = r.segmentationMask.height;
-        cv.getContext("2d").drawImage(r.segmentationMask, 0, 0);
+        // Reassigning even an unchanged dimension reallocates/clears the
+        // backing store. Keep it across frames, but replace transparent areas
+        // as well as opaque pixels so yesterday's mask cannot remain visible.
+        if (cv.width !== r.segmentationMask.width) cv.width = r.segmentationMask.width;
+        if (cv.height !== r.segmentationMask.height) cv.height = r.segmentationMask.height;
+        const ctx = cv.getContext("2d");
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(r.segmentationMask, 0, 0);
         bgSeg.resultVersion++;
       });
       bgSeg.seg = seg;

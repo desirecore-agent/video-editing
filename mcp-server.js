@@ -1218,7 +1218,7 @@ async function denoiseTool(args) {
 /* ── Export (fablecut_export) ── */
 /** Saved delivery presets (library/delivery/), as the server lists them. */
 function savedDeliveryPresets() { return Delivery.savedPresets(readSaved("delivery")); }
-function describeExportJob(j) {
+function describeExportJobSummary(j) {
   const pct = Math.round((j.progress || 0) * 100);
   if (j.status === "done") {
     const file = path.join(EXPORTS_DIR, path.basename(decodeURIComponent(j.src || "")));
@@ -1234,9 +1234,29 @@ function describeExportJob(j) {
     return `Export ${j.id} done → ${file}${size}${j.result && j.result.summary ? `\n${j.result.summary}` : ""}` +
       `${rep ? `\n${rep.ok ? "Checks passed" : "CHECK"}: ${rep.line}` : ""}\nServed at ${BASE}${j.src}`;
   }
-  if (j.status === "failed" || j.status === "cancelled") return `Export ${j.id} ${j.status}: ${j.error || "no reason given"}`;
+  if (["failed", "cancelled", "interrupted"].includes(j.status)) return `Export ${j.id} ${j.status}: ${j.error || "no reason given"}`;
   return `Export ${j.id} ${j.status}${j.status === "running" ? ` — ${pct}%` : ""} (in ${j.via === "headless" ? "a headless browser" : "the open editor tab"}). ` +
     `Check again with fablecut_export {job:"${j.id}"}, or stop it with {cancel:"${j.id}"}.`;
+}
+/** Present original job facts in every terminal summary, including multi-file
+ * results. A status query neither diagnoses a cause nor chooses a retry. */
+function describeExportJob(j) {
+  let text = describeExportJobSummary(j);
+  if (["failed", "cancelled", "interrupted"].includes(j.status) && j.diagnostics?.browser) {
+    const b = j.diagnostics.browser, tail = typeof b.stderrTail === "string" ? b.stderrTail : "";
+    const facts = { pid: b.pid ?? null, discovery: b.discovery,
+      targetCrashes: Array.isArray(b.targetCrashes) ? b.targetCrashes.slice(-8).map(c => ({
+        at: c.at, targetId: c.targetId, type: c.type, status: c.status,
+        errorCode: c.errorCode, ownerClosing: c.ownerClosing,
+      })) : [], exit: b.exit ?? null,
+      stderrTail: tail.slice(-2048), stderrTailTruncated: tail.length > 2048,
+    };
+    text += "\nOriginal browser diagnostics: " + JSON.stringify(facts);
+  }
+  const recovered = j.result?.diagnostics?.jpegReadbackRecoveries;
+  if (j.status === "done" && Array.isArray(recovered) && recovered.length)
+    text += "\nActual JPEG readback recoveries (zero-based frames): " + JSON.stringify(recovered);
+  return text;
 }
 /* fablecut_proxy: the server makes proxies (proxy.js); this asks it, and waits. */
 /* fablecut_projects: through the editor server, so it is the only process that

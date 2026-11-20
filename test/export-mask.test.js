@@ -17,14 +17,24 @@ function load({ offline = false, mode = "ok" } = {}) {
       calls.push(image.frame);
       await new Promise(resolve => setImmediate(resolve));
       if (control.mode === "error") throw new Error("model refused frame");
-      if (control.mode !== "empty") this.callback({ segmentationMask: { width: 2, height: 2, frame: image.frame } });
+      if (control.mode !== "empty") this.callback({ segmentationMask: { width: image.maskWidth || 2, height: image.maskHeight || 2, frame: image.frame } });
     }
   }
   const document = {
     head: { appendChild(script) { setImmediate(() => offline ? script.onerror() : script.onload()); } },
     createElement(kind) {
       if (kind === "script") return {};
-      const canvas = { getContext: () => ({ drawImage(image) { canvas.frame = image.frame; } }) };
+      let width = 0, height = 0;
+      const canvas = { widthWrites: 0, heightWrites: 0, clears: 0 };
+      Object.defineProperties(canvas, {
+        width: { get: () => width, set(value) { width = value; canvas.widthWrites++; canvas.frame = null; } },
+        height: { get: () => height, set(value) { height = value; canvas.heightWrites++; canvas.frame = null; } },
+      });
+      const context = {
+        clearRect() { canvas.frame = null; canvas.clears++; },
+        drawImage(image) { canvas.frame = image.frame; },
+      };
+      canvas.getContext = () => context;
       return canvas;
     },
   };
@@ -65,6 +75,17 @@ test("forced masks remain serialized across frames", async () => {
   assert.deepEqual(api.calls, [1, 2]);
   assert.equal(api.bgSeg.masks.get("one")?.frame, 1);
   assert.equal(api.bgSeg.masks.get("two")?.frame, 2);
+});
+test("same-size inference masks reuse their backing store and clear the previous result; actual dimension changes resize only the changed axis", async () => {
+  const api = load();
+  for (let frame = 1; frame <= 3; frame++) await api.requestMask("person", image(frame), true);
+  const mask = api.bgSeg.masks.get("person");
+  assert.equal(mask.widthWrites, 1); assert.equal(mask.heightWrites, 1);
+  assert.equal(mask.clears, 3); assert.equal(mask.frame, 3);
+  await api.requestMask("person", { ...image(4), maskWidth: 3 }, true);
+  assert.equal(api.bgSeg.masks.get("person"), mask);
+  assert.equal(mask.widthWrites, 2); assert.equal(mask.heightWrites, 1);
+  assert.equal(mask.clears, 4); assert.equal(mask.frame, 4);
 });
 test("shared frame preparation reports the clip/time when segmentation fails", async () => {
   const start = source.indexOf("async function prepareFrameAssets("), end = source.indexOf("/* UI exports", start);

@@ -63,8 +63,8 @@
     },
     {
       "path": "app.js",
-      "sha256": "044740e5285d62ad8261a53350a4591d2e64fe12dd8382e16d5e3efef0de7ce7",
-      "size": 1054893,
+      "sha256": "a07954bb4d29cd72986785aa06d0ec6ab995e0cb5494aeb7e59128e2801b8cee",
+      "size": 1055296,
       "role": "runtime"
     },
     {
@@ -219,8 +219,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "8929e8bae8cdbcbd3bb7b67a4c060e1d9948ac356067238e1bd633d751a1ed39",
-      "size": 194687,
+      "sha256": "acb09eed212a11fe89eb6b260c5d446b96a151e28ff3a03aa2c329a57147c2a6",
+      "size": 195437,
       "role": "documentation"
     },
     {
@@ -669,8 +669,8 @@
     },
     {
       "path": "mcp-server.js",
-      "sha256": "afa81560489929f8ff6868010308ceb0bd7c040496f9a643a940f4a6ae0904b1",
-      "size": 162009,
+      "sha256": "aef0875098b4e08366830d16009ebcef0cb53ee55276f3bea21ebb3a612a1462",
+      "size": 163192,
       "role": "runtime"
     },
     {
@@ -838,7 +838,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "d950724b2b89868fc8a1fe71ba9f8ff5053c58c0b42cb36929598dcbc65e8bd0"
+    "sha256": "c8ba44026d657715d03458d375e56063ee780aca038dd5501b80908c1de265d3"
   },
   "supportedPlatforms": [
     "darwin",
@@ -871,5 +871,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "72fefa0bbf9c2fdc66f0c3af9b4015c2f0575e67a00d0578a4f54e5001c6af59"
+  "releaseDigest": "a6e0fc65c8edd93bb25be8dbbfb1eaaafe67f96315ca6c88f568bbed918e1c8b"
 }

@@ -2311,7 +2311,7 @@ obvious cuts were missed, raise it if motion is being misread as cuts.
   Explicit `where:"tab"` returns 409 before capture; other invalid values return 400,
   without changing the project/media or creating a snapshot, job or browser.
   Admission also returns 409 if one is already running or nothing can render it. `GET /api/export/job?id=`
-  → `{status: pending|running|done|failed|cancelled, progress 0–1, src, error}` ·
+  → `{status: pending|running|done|failed|cancelled|interrupted, progress 0–1, src, error, diagnostics}` ·
   `POST /api/export/job/cancel?id=`. The dedicated renderer reads
   `GET /api/export/job/ticket?id=`, then `POST /api/export/job/claim?id=`
   (the original job claims once, else 409), `POST /api/export/job/report?id=`
@@ -2834,6 +2834,11 @@ client can still impose its own deadline. Restart preserves an unfinished origin
 automatic continuation or an original-ID retry. Persistent snapshots and
 completed files remain retained facts, separate from temporary encoder paths.
 
+Each fresh person-mask result clears and replaces its previous pixels. Its
+canvas backing store is retained while dimensions match and resized only when
+they change. Every forced frame still awaits a new inference result; mask
+quality, threshold/softness and the shared compositor remain unchanged.
+
 Fast JPEG export pins an immutable RGBA snapshot synchronously using the same
 CPU readback primitive as raw-frame export, before drawing another frame.
 The buffer is transferred to a worker, which puts those exact pixels into a
@@ -2875,6 +2880,13 @@ the original terminal result. Unsupported discovery remains explicit and uses
 the unchanged stall contract; absence of a crash event does not prove a hang,
 GPU failure or memory exhaustion. Logs can contain local paths and remain
 runtime data. The observer adds no debug port or attachment to another browser.
+
+`fablecut_export {job:"…"}` includes these original browser facts for failed,
+cancelled and interrupted jobs, with at most the last 2048 stderr characters
+and an explicit truncation flag. When present in the original result,
+successful replies also include its actual zero-based JPEG recovery entries,
+including multi-file summaries. A metadata
+query preserves the original job and does not admit or retry another export.
 
 An explicit blank-page fixture validates this observation and ordinary close
 against an already prepared native runtime. It intentionally crashes its own
