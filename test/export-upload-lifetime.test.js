@@ -25,7 +25,7 @@ async function listen(t, handler) {
   return "http://127.0.0.1:" + server.address().port;
 }
 
-test("frame upload waits for the real response body, preserves bytes and retires its exclusive payload", async t => {
+test("ordered frame uploads wait for the real response body and preserve bytes", async t => {
   const gate = deferred(), headers = deferred(), received = [];
   t.after(() => gate.resolve());
   const base = await listen(t, async (req, res) => {
@@ -43,15 +43,13 @@ test("frame upload waits for the real response body, preserves bytes and retires
   await headers.promise; await tick(); await tick();
   assert.equal(up.inFlight(), 2, "response headers alone do not release this upload or admit the next one");
   assert.equal(received.length, 1);
-  assert.equal(first.byteLength, 4, "retain the owned source through response consumption");
   gate.resolve(); await completed;
   assert.equal(error(), undefined);
   assert.deepEqual(received.map(x => [...x]), [[1, 2, 3, 4], [5, 6, 7, 8]]);
-  assert.equal(first.byteLength, 0); assert.equal(second.byteLength, 0);
   assert.equal(up.inFlight(), 0);
 });
 
-test("a rejected HTTP frame retires its owned payload and retains the original server error", async t => {
+test("a rejected HTTP frame retains the original server error", async t => {
   const received = [];
   const base = await listen(t, async (req, res) => {
     for await (const chunk of req) received.push(...chunk);
@@ -61,14 +59,14 @@ test("a rejected HTTP frame retires its owned payload and retains the original s
   const payload = Uint8Array.of(9, 10, 11); up.push(payload); await up.done();
   assert.deepEqual(received, [9, 10, 11]);
   assert.match(error().message, /original encoder stopped/);
-  assert.equal(payload.byteLength, 0); assert.equal(up.inFlight(), 0);
+  assert.equal(up.inFlight(), 0);
 });
 
-test("transport rejection releases the exclusive frame without replacing the original error", async () => {
+test("transport rejection retains the original error and settles the queue", async () => {
   const original = new Error("original transport rejection");
   const { up, error } = uploader(async () => { throw original; });
   const payload = Uint8Array.of(12, 13); up.push(payload); await up.done();
-  assert.equal(error(), original); assert.equal(payload.byteLength, 0); assert.equal(up.inFlight(), 0);
+  assert.equal(error(), original); assert.equal(up.inFlight(), 0);
 });
 
 test("a subarray payload leaves its shared backing store available for another owner", async () => {

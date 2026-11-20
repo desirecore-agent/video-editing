@@ -84,7 +84,7 @@ JPEG worker 的 error/messageerror 明确拒绝其未完成帧并停止该线程
 
 Fast JPEG 在合成线程推进前复用原有 CPU `getImageData` 原语固定当前帧的 RGBA 字节，转移 buffer 给 worker，再用复用的 CPU 画布编码；最多7份快照背压和原帧序保持。它增加明确的 CPU 读回/传输工作，避免依赖稍后可能失效的 GPU-backed ImageBitmap；不换合成器、效果、分辨率或交付格式。首次 EncodingError 可重建 CPU 画布并用保留的同帧字节编码一次，失败仍终止原 job。生产 workerless 回退同样使用 CPU 像素，并在读回结束或失败时释放其画布。
 
-worker 在编码或同帧唯一恢复结束后，以受支持的 `ArrayBuffer.transfer(0)` 解除已消费独占 RGBA store 的关联。串行 frame 上传须读完成功响应正文才释放背压，并在成功/失败的 finally 中退役独占完整 buffer、清除 payload 引用；共享 store 的 slice、Blob 与不支持 detach 的浏览器保留普通路径，退役异常不改变原编码结果。这是已选择动作的资源生命周期收束，不强 GC，不据此宣称长片内存稳定。
+串行帧上传读完成功响应正文后释放背压。请求结束时清除上传器保存的 payload 引用，保留调用方的 buffer 和数据。
 
 冻结的 `?exportJob=...` 文档首次创建主画布及遮罩、合成、描边、调整、像素暂存和裁剪的 2D context 时统一请求 `willReadFrequently:true`，让浏览器选择适合逐帧读回的存储。交互编辑页保留原调用者选项/默认值，人物模型和像素/调色所需的 WebGL 仍启用。设置本身不证明旧失联是 GPU/驱动导致，仍以真实完整成片和当前环境实测为准。
 

@@ -146,26 +146,6 @@ test("CPU pixel snapshots retain their exact frame through queued JPEG encode an
   assert.equal(outputs.filter(x => x.readbackRecovery).length, 1);
   assert.equal(encoder.canvases.length, 2, "one retired CPU store, then one reused CPU store");
   assert(encoder.canvases.every(x => x.cpuReadback));
-  assert(frames.every(x => x.data.byteLength === 0), "retire each consumed exclusive RGBA store after same-frame recovery");
-});
-
-test("JPEG worker retires consumed RGBA stores on failure while preserving the next frame", async () => {
-  const encoder = worker({ cpuFailures: [1] });
-  const frames = [1, 2].map(id => ({ id, data: new Uint8Array(64).fill(id), width: 4, height: 4 }));
-  const outputs = await encoder.sendPixels(frames);
-  assert.match(outputs[0].error, /Encoding of the source image has failed/);
-  assert.equal(new Uint32Array(outputs[1].buf)[0], 2);
-  assert(frames.every(x => x.data.byteLength === 0), "failed and completed inputs no longer retain native pixel memory");
-});
-
-test("unavailable or non-detachable RGBA retirement cannot change the encoded result", async () => {
-  const encoder = worker();
-  const frames = [1, 2].map(id => ({ id, data: new Uint8Array(64).fill(id), width: 4, height: 4 }));
-  Object.defineProperty(frames[0].data.buffer, "transfer", { value: undefined });
-  Object.defineProperty(frames[1].data.buffer, "transfer", { value() { throw new TypeError("not detachable"); } });
-  const outputs = await encoder.sendPixels(frames);
-  assert(outputs.every(x => !x.error));
-  for (const output of outputs) assert.equal(new Uint32Array(output.buf)[0], output.id);
 });
 
 test("compositor pins independent CPU bytes before later frames change its source", () => {

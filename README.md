@@ -22,7 +22,7 @@ Export seeking registers presented-frame callbacks before the seek and reuses ve
 
 If a JPEG worker first reports `EncodingError`, it retains that exact frame snapshot and tries CPU readback once, then reuses that CPU canvas. A second failure or any other error fails the original job; frames are never skipped or re-rendered. Delivery receipts record recovered frame indices in `result.diagnostics.jpegReadbackRecoveries`; inspect those frames and their neighbours in the actual movie.
 
-Consumed exclusive RGBA/frame buffers are retired after encoding/recovery or upload when buffer transfer is supported. Ordered uploads also finish consuming successful HTTP responses before admitting the next frame. This closes resource lifetimes without forcing GC; full-movie stability still requires actual output verification.
+Ordered uploads finish consuming successful HTTP responses before admitting the next frame.
 
 HTTP media ranges, static files, thumbnails and cached frames share a file-transfer lifetime. Closing a browser request closes its file reader; asynchronous open/read failures fail that transfer instead of terminating the editor with an unhandled stream error. Completed transfers retain their existing bytes and Range responses.
 
