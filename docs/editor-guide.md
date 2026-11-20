@@ -2855,6 +2855,15 @@ and stop reason. These are isolate measurements, not whole-process RSS or
 independent-worker memory. Sampling does not evaluate page JavaScript, force
 GC, change export choices/timeouts or establish an OOM/GPU/driver cause.
 
+For native exports the same browser owner also collects one detailed allocator
+snapshot after its thirteenth normal heap sample. `diagnostics.browser.nativeMemory`
+keeps only bounded process types and byte counters for malloc, partitions,
+array buffers, the compositor image cache, Blink and V8. The existing pipe reads
+the trace in 16KiB chunks with an 8MiB total budget, discards the raw trace, and
+never exposes addresses or media paths. The dump explicitly disables forced GC;
+unsupported, over-budget, timed-out or owner-closed observation cannot fail or
+retry the export. A snapshot identifies measured allocations, not a root cause.
+
 Frozen export documents do not build interactive timeline waveform peaks.
 Their interactive animation loop exits from the first tick, including loading
 and audio preparation. It schedules no UI wakeups, timeline scans, ruler draws,

@@ -11,14 +11,48 @@ const CLOSE_GRACE_MS = 3000;
 const KILL_GRACE_MS = 2000;
 const PIPE_MESSAGE_BYTES = 64 * 1024;
 const STDERR_BYTES = 16 * 1024;
+const NATIVE_TRACE_BYTES = 8 * 1024 * 1024;
 
-function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCrash, observePageMemory } = {}) {
+/** 只留下固定 allocator 的数字，不把 trace 内的地址、路径或任意字段交给模型。 */
+function summarizeAllocatorTrace(text) {
+  const trace = JSON.parse(text), processes = new Map();
+  const bytes = value => typeof value === "string" && /^[0-9a-f]+$/i.test(value)
+    && Number.isSafeInteger(parseInt(value, 16)) ? parseInt(value, 16) : undefined;
+  const fields = { malloc: "mallocBytes", partition_alloc: "partitionBytes",
+    "partition_alloc/partitions/array_buffer": "arrayBufferBytes",
+    "cc/image_memory": "imageCacheBytes", blink_gc: "blinkGcBytes", v8: "v8Bytes" };
+  for (const event of trace.traceEvents || []) {
+    if (!Number.isInteger(event.pid) || event.pid < 0) continue;
+    if (!processes.has(event.pid)) {
+      if (processes.size >= 16) continue;
+      processes.set(event.pid, { pid: event.pid, type: "other" });
+    }
+    const item = processes.get(event.pid);
+    if (event.name === "process_name") {
+      const name = event.args?.name;
+      item.type = name === "Renderer" ? "renderer" : name === "Browser" ? "browser" : name === "GPU Process" ? "gpu" : "other";
+    }
+    const dumps = event.args?.dumps;
+    const resident = bytes(dumps?.process_totals?.resident_set_bytes);
+    if (resident !== undefined) item.residentBytes = resident;
+    for (const [allocator, field] of Object.entries(fields)) {
+      const attr = dumps?.allocators?.[allocator]?.attrs?.size;
+      const size = attr?.units === "bytes" ? bytes(attr.value) : undefined;
+      if (size !== undefined) item[field] = size;
+    }
+  }
+  return [...processes.values()].filter(p => Object.keys(p).length > 2);
+}
+
+function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCrash, observePageMemory, observeNativeAllocators = false } = {}) {
   const observe = typeof onTargetCrash === "function";
   const diagnostics = { discovery: observe ? "pending" : "disabled", targetCrashes: [], stderrTail: "", exit: null };
   const memoryUrl = observe && typeof observePageMemory === "string" && observePageMemory ? observePageMemory : null;
   if (memoryUrl) diagnostics.memory = { status: "waiting", sampleCount: 0, samples: [], peak: {}, stopReason: null };
+  if (memoryUrl && observeNativeAllocators) diagnostics.nativeMemory = { status: "waiting" };
   let closing = false, termTimer, killTimer;
   let stopMemory = () => {};
+  let stopNativeMemory = () => {};
   const removeProfile = (attempts = 5) => {
     if (keep) return;
     fs.rm(profileDir, { recursive: true, force: true }, (error) => {
@@ -48,6 +82,58 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
     // evaluation, GC, debug port, inferred cause or effect on job admission.
     let memoryTarget, memorySession, attachId, heapId, nextId = 2, memoryTimer, memoryDeadline;
     const memory = diagnostics.memory;
+    const native = diagnostics.nativeMemory, nativeRequests = new Map();
+    let nativeStopped = false, nativeStream, nativeStreamReject, nativeStreamTimer;
+    const nativeCommand = (method, params = {}) => new Promise((resolve, reject) => {
+      if (closing || nativeStopped) return reject(new Error("owner_closed"));
+      const id = nextId++, timer = setTimeout(() => { nativeRequests.delete(id); reject(new Error("observation_timeout")); }, 30_000);
+      timer.unref?.(); nativeRequests.set(id, { resolve, reject, timer });
+      input.write(JSON.stringify({ id, method, params }) + "\0", error => {
+        if (!error) return;
+        const request = nativeRequests.get(id); if (!request) return;
+        clearTimeout(request.timer); nativeRequests.delete(id); reject(new Error("pipe_error"));
+      });
+    });
+    stopNativeMemory = () => {
+      nativeStopped = true; clearTimeout(nativeStreamTimer); nativeStreamReject?.(new Error("owner_closed"));
+      for (const request of nativeRequests.values()) { clearTimeout(request.timer); request.reject(new Error("owner_closed")); }
+      nativeRequests.clear();
+      if (native && ["waiting", "observing"].includes(native.status)) native.status = "owner_closed";
+    };
+    const captureNative = async () => {
+      if (!native || native.status !== "waiting" || closing) return;
+      native.status = "observing";
+      let handle, traceStarted = false;
+      try {
+        await nativeCommand("Tracing.start", { transferMode: "ReturnAsStream", traceConfig: {
+          recordMode: "recordAsMuchAsPossible", includedCategories: ["disabled-by-default-memory-infra"],
+          excludedCategories: ["*"], memoryDumpConfig: { triggers: [] },
+        } }); traceStarted = true;
+        const dump = await nativeCommand("Tracing.requestMemoryDump", { deterministic: false, levelOfDetail: "detailed" });
+        if (!dump.success) throw new Error("dump_unavailable");
+        const ready = new Promise((resolve, reject) => {
+          nativeStream = resolve; nativeStreamReject = reject;
+          nativeStreamTimer = setTimeout(() => reject(new Error("stream_timeout")), 30_000); nativeStreamTimer.unref?.();
+        }); ready.catch(() => {});
+        await nativeCommand("Tracing.end"); traceStarted = false; handle = await ready; clearTimeout(nativeStreamTimer);
+        const chunks = []; let size = 0;
+        for (;;) {
+          const part = await nativeCommand("IO.read", { handle, size: 16 * 1024 });
+          const chunk = Buffer.from(part.data, part.base64Encoded ? "base64" : "utf8");
+          size += chunk.length; if (size > NATIVE_TRACE_BYTES) throw new Error("trace_budget_exceeded");
+          chunks.push(chunk); if (part.eof) break;
+        }
+        const processes = summarizeAllocatorTrace(Buffer.concat(chunks).toString("utf8"));
+        if (!processes.length) throw new Error("allocator_data_unavailable");
+        Object.assign(native, { status: "sampled", at: Date.now(), processes });
+      } catch (error) {
+        if (!closing && !nativeStopped) native.status = error.message === "trace_budget_exceeded" ? "over_budget" : "unavailable";
+      } finally {
+        clearTimeout(nativeStreamTimer); nativeStream = nativeStreamReject = null;
+        if (handle && !closing && !nativeStopped) try { await nativeCommand("IO.close", { handle }); } catch {}
+        if (traceStarted && !closing && !nativeStopped) try { await nativeCommand("Tracing.end"); } catch {}
+      }
+    };
     stopMemory = reason => {
       clearInterval(memoryTimer); clearTimeout(memoryDeadline);
       attachId = heapId = null;
@@ -71,6 +157,12 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
     const message = raw => {
       let event;
       try { event = JSON.parse(raw); } catch { return; }
+      const nativeRequest = nativeRequests.get(event.id);
+      if (nativeRequest) {
+        clearTimeout(nativeRequest.timer); nativeRequests.delete(event.id);
+        event.error ? nativeRequest.reject(new Error("protocol_unavailable")) : nativeRequest.resolve(event.result);
+      }
+      if (event.method === "Tracing.tracingComplete" && typeof event.params?.stream === "string") nativeStream?.(event.params.stream);
       if (event.id === 1) diagnostics.discovery = event.error ? "unsupported" : "enabled";
       if (memory && !closing && !memory.stopReason && attachId && event.id === attachId) {
         clearTimeout(memoryDeadline); attachId = null;
@@ -93,6 +185,8 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
           }
           memory.status = "sampled"; memory.sampleCount++; memory.samples.push(sample);
           if (memory.samples.length > 32) memory.samples.shift();
+          // 一次真实原生 allocator 样本，补充 heap 无法解释的进程占用；不触发 GC。
+          if (memory.sampleCount === 13) captureNative().catch(() => {});
         }
       }
       const info = event.params?.targetInfo;
@@ -148,7 +242,7 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
     });
   } else output.resume();
   const exited = () => proc.exitCode !== null || proc.signalCode !== null;
-  const clearTimers = () => { clearTimeout(termTimer); clearTimeout(killTimer); stopMemory("process_exit"); };
+  const clearTimers = () => { clearTimeout(termTimer); clearTimeout(killTimer); stopMemory("process_exit"); stopNativeMemory(); };
   proc.once("exit", clearTimers);
   proc.once("exit", (code, signal) => { diagnostics.exit = { code, signal, ownerClosing: closing }; });
   proc.once("error", clearTimers);
@@ -167,6 +261,7 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
       if (closing) return;
       closing = true;
       stopMemory("owner_closed");
+      stopNativeMemory();
       input.destroy(); // the same EOF path also runs when our owner is SIGKILLed
       if (exited() || !proc.pid) return;
       termTimer = setTimeout(() => {
@@ -182,4 +277,4 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
   };
 }
 
-module.exports = { createBrowserProcess };
+module.exports = { createBrowserProcess, summarizeAllocatorTrace };

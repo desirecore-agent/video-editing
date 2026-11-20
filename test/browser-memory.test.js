@@ -4,7 +4,7 @@ const fs = require("node:fs"), path = require("node:path"), vm = require("node:v
 const { EventEmitter } = require("node:events"), { PassThrough } = require("node:stream");
 const source = fs.readFileSync(path.join(__dirname, "..", "browser-process.js"), "utf8");
 const url = "http://127.0.0.1:7778/?exportJob=owned";
-function fixture() {
+function fixture({ observeNativeAllocators = false } = {}) {
   const commands = [], timers = new Set(), intervals = new Set(), proc = new EventEmitter();
   proc.pid = 123; proc.exitCode = proc.signalCode = null;
   proc.stdio = [null, null, new PassThrough(), new PassThrough(), new PassThrough()]; proc.stderr = proc.stdio[2]; proc.kill = () => assert.fail("no actual process termination in protocol fixture");
@@ -16,7 +16,7 @@ function fixture() {
     setInterval: (fn, ms) => createTimer(intervals, fn, ms), clearInterval: t => intervals.delete(t),
   };
   vm.runInNewContext(source, context);
-  const handle = module.exports.createBrowserProcess("owned-chrome", [], { profileDir: "owned-profile", onTargetCrash() {}, observePageMemory: url });
+  const handle = module.exports.createBrowserProcess("owned-chrome", [], { profileDir: "owned-profile", onTargetCrash() {}, observePageMemory: url, observeNativeAllocators });
   const reply = event => proc.stdio[4].write(JSON.stringify(event) + "\0");
   const info = (targetId, targetUrl = url, type = "page") => reply({ method: "Target.targetCreated", params: { targetInfo: { targetId, url: targetUrl, type } } });
   proc.emit("spawn"); reply({ id: 1, result: {} });
@@ -64,4 +64,80 @@ test("unsupported attachment, invalid numeric data and an unresponsive read stop
   const stalled = fixture(); attached(stalled); const count = stalled.commands.length;
   const timeout = [...stalled.timers].find(t => t.ms === 30000); assert(timeout); timeout.callback();
   assert.equal(stalled.diagnostics().memory.status, "unresponsive"); assert.equal(stalled.diagnostics().memory.stopReason, "unresponsive"); assert.equal(stalled.intervals.size, 0); assert.equal(stalled.commands.length, count);
+});
+
+function reachNativeSample(f) {
+  let read = attached(f);
+  for (let n = 1; n <= 13; n++) {
+    f.reply({ id: read.id, sessionId: "owned-session", result: { usedSize: n, totalSize: 100 } });
+    if (n < 13) { [...f.intervals][0].callback(); read = f.commands.at(-1); }
+  }
+  return f.commands.at(-1);
+}
+const settle = () => new Promise(resolve => setImmediate(resolve));
+test("one native allocator snapshot uses the owned pipe, bounded stream and no forced GC", async () => {
+  const f = fixture({ observeNativeAllocators: true });
+  let command = reachNativeSample(f); assert.equal(command.method, "Tracing.start");
+  assert.equal(command.sessionId, undefined); assert.equal(command.params.transferMode, "ReturnAsStream");
+  f.reply({ id: command.id, result: {} }); await settle();
+  command = f.commands.at(-1); assert.equal(command.method, "Tracing.requestMemoryDump"); assert.equal(command.params.deterministic, false);
+  f.reply({ id: command.id, result: { success: true } }); await settle();
+  command = f.commands.at(-1); assert.equal(command.method, "Tracing.end");
+  f.reply({ method: "Tracing.tracingComplete", params: { stream: "owned-trace" } }); f.reply({ id: command.id, result: {} }); await settle();
+  command = f.commands.at(-1); assert.equal(command.method, "IO.read"); assert.equal(command.params.size, 16 * 1024);
+  const data = JSON.stringify({ traceEvents: [
+    { pid: 42, name: "process_name", args: { name: "Renderer" } },
+    { pid: 42, args: { dumps: { allocators: { "cc/image_memory": { attrs: { size: { units: "bytes", value: "1000" } } }, secret: { path: "private-media" } } } } },
+  ] });
+  f.reply({ id: command.id, result: { data, eof: true } }); await settle();
+  command = f.commands.at(-1); assert.equal(command.method, "IO.close"); f.reply({ id: command.id, result: {} }); await settle();
+  assert.deepEqual(f.diagnostics().nativeMemory.processes, [{ pid: 42, type: "renderer", imageCacheBytes: 4096 }]);
+  assert.equal(f.diagnostics().nativeMemory.status, "sampled"); assert.equal(f.diagnostics().memory.sampleCount, 13);
+  assert(!JSON.stringify(f.diagnostics().nativeMemory).includes("private-media"));
+  f.handle.close(); assert.equal(f.diagnostics().nativeMemory.status, "sampled");
+  f.proc.exitCode = 0; f.proc.emit("close");
+});
+test("unsupported allocator observation and owner close never change heap samples or invoke retries", async () => {
+  const f = fixture({ observeNativeAllocators: true }), command = reachNativeSample(f);
+  f.reply({ id: command.id, error: { code: -32601 } }); await settle();
+  assert.equal(f.diagnostics().nativeMemory.status, "unavailable");
+  assert.equal(f.diagnostics().memory.status, "sampled"); assert.equal(f.diagnostics().memory.sampleCount, 13);
+  f.handle.close(); assert.equal(f.diagnostics().nativeMemory.status, "unavailable"); f.proc.exitCode = 0; f.proc.emit("close");
+  const closing = fixture({ observeNativeAllocators: true }); reachNativeSample(closing); closing.handle.close(); await settle();
+  assert.equal(closing.diagnostics().nativeMemory.status, "owner_closed"); assert.equal(closing.diagnostics().memory.sampleCount, 13);
+  assert.equal(closing.timers.size, 1); // only the existing owner TERM grace timer
+  closing.proc.exitCode = 0; closing.proc.emit("exit", 0, null); closing.proc.emit("close");
+});
+
+test("allocator summary only accepts byte counters and stays bounded to known process facts", () => {
+  const { summarizeAllocatorTrace } = require("../browser-process");
+  const traceEvents = Array.from({ length: 100 }, (_, pid) => ({ pid, args: { dumps: { allocators: {
+    malloc: { attrs: { size: { units: "bytes", value: "10" } } },
+    v8: { attrs: { size: { units: "bytes", value: "ffffffffffffffff" } } },
+    blink_gc: { attrs: { size: { units: "objects", value: "10" } } },
+    "cc/image_memory": { attrs: { size: { units: "bytes", value: "-10" } } },
+  } } } }));
+  const result = summarizeAllocatorTrace(JSON.stringify({ traceEvents }));
+  assert.equal(result.length, 16); assert(result.every(p => p.mallocBytes === 16 && Object.keys(p).length === 3));
+});
+
+test("allocator stream stops at its byte budget and still closes the owned stream", async () => {
+  const f = fixture({ observeNativeAllocators: true });
+  let command = reachNativeSample(f);
+  for (const method of ["Tracing.requestMemoryDump", "Tracing.end"]) {
+    f.reply({ id: command.id, result: command.method === "Tracing.requestMemoryDump" ? { success: true } : {} });
+    await settle(); command = f.commands.at(-1); assert.equal(command.method, method);
+  }
+  f.reply({ method: "Tracing.tracingComplete", params: { stream: "bounded-trace" } });
+  f.reply({ id: command.id, result: {} }); await settle();
+  const data = " ".repeat(16 * 1024);
+  for (let n = 0; n <= 512; n++) {
+    command = f.commands.at(-1); assert.equal(command.method, "IO.read");
+    f.reply({ id: command.id, result: { data, eof: false } }); await settle();
+  }
+  command = f.commands.at(-1); assert.equal(command.method, "IO.close");
+  f.reply({ id: command.id, result: {} }); await settle();
+  assert.equal(f.diagnostics().nativeMemory.status, "over_budget");
+  assert.equal(f.diagnostics().memory.sampleCount, 13);
+  f.handle.close(); f.proc.exitCode = 0; f.proc.emit("close");
 });
