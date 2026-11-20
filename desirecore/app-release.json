@@ -63,8 +63,8 @@
     },
     {
       "path": "app.js",
-      "sha256": "e72df1711c926ec915f4b0041431a1281970fedb4c33cae303ce987f1c2e915b",
-      "size": 1056735,
+      "sha256": "265ba93258b095811451e96fb6dfc902522591b5a70cb29f3532c6bc85e725a5",
+      "size": 1058018,
       "role": "runtime"
     },
     {
@@ -141,8 +141,8 @@
     },
     {
       "path": "desirecore/RUNTIME.md",
-      "sha256": "1907947d6b035716ce44c11ed1afa2430f1ce0c79da794c4955809f805aafaa9",
-      "size": 21697,
+      "sha256": "83caf1323bc89b750c1d852d09cfa644c7fbf9357a6d915991ad4c595b36f0a4",
+      "size": 22374,
       "role": "documentation"
     },
     {
@@ -219,8 +219,8 @@
     },
     {
       "path": "docs/editor-guide.md",
-      "sha256": "291c3149c6b401d5196a5ca7b57b1214d904961162af0de447477373758d3693",
-      "size": 197518,
+      "sha256": "f9e5c20da8d6491c9f19fc860a617c82228d05a009d82a86e5472051a5b87c49",
+      "size": 198346,
       "role": "documentation"
     },
     {
@@ -249,8 +249,8 @@
     },
     {
       "path": "export-jobs.js",
-      "sha256": "6241be8d77769ee522f25a1f889f282a5ce9c038c3304b907f1ce1dea6452997",
-      "size": 27436,
+      "sha256": "13d180b5215a88ed2418b670b0dbe80a18181bca6d4bfd0e9ba4cde54f825868",
+      "size": 28733,
       "role": "runtime"
     },
     {
@@ -669,8 +669,8 @@
     },
     {
       "path": "mcp-server.js",
-      "sha256": "30c14f45498479d78084b5e90c19810a13b5ad80dbe3535c2370b536eb3a5d75",
-      "size": 164047,
+      "sha256": "dfee49f961a03e7cdd050db00c508892067a8e1fc474602b90592b95565970d0",
+      "size": 164645,
       "role": "runtime"
     },
     {
@@ -838,7 +838,7 @@
   ],
   "source": {
     "kind": "worktree",
-    "sha256": "b12e875b2b91ea380d0697df8caadbbd4a2d299700f949b4b1c74945f1a7c5ca"
+    "sha256": "161d3b5828b945b3cca490634c580815bde4fb69ac4895f1a04b72eb2da2f5a7"
   },
   "supportedPlatforms": [
     "darwin",
@@ -871,5 +871,5 @@
     "restoreInstructionsPath": "desirecore/RUNTIME.md"
   },
   "instructionsPath": "desirecore/RUNTIME.md",
-  "releaseDigest": "def664f5e2d8d08971d369c7be431d822e9e452c7b1d52a4491c636a8ac02191"
+  "releaseDigest": "7c9bd65a16e18be31f8ef5e6f3983c070936d1221341120953b64ed2ce7ed2c5"
 }
