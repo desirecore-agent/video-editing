@@ -16142,6 +16142,9 @@ function frameDue(now) {
   return true;
 }
 function loop(ts) {
+  // Frozen documents execute explicit job/seek/asset/frame steps. Interactive
+  // rulers, inspectors and caption watchers have no consumer or wakeup here.
+  if (compositorReadback) return;
   if (lastTs == null) lastTs = ts;
   const dt = Math.min(0.1, (ts - lastTs) / 1000);
   lastTs = ts;
@@ -16194,10 +16197,9 @@ function loop(ts) {
       sc.scrollLeft = Math.max(0, px - 60);
   }
   const draw = frameDue(ts);
-  // A frozen job owns media and pixels from its first tick, including the
-  // asynchronous load/mix preparation before state.rendering becomes true.
-  // Preview sync would otherwise preload every future clip in this document.
-  if (!state.rendering && !compositorReadback) {
+  // A foreground renderer owns its pixels while the interactive loop remains
+  // available for the rest of that editor's UI.
+  if (!state.rendering) {
     if (isSourceMode()) {
       syncSourceMedia();
       if (draw) drawSourceFrame();

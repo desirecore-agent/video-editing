@@ -53,25 +53,27 @@ test("export seeking releases a past clip player", async () => {
 });
 
 function previewTick({ frozen, rendering = false, sourceMode = false }) {
-  const calls = { players: [], draws: 0, sourceSync: 0, sourceDraws: 0 };
+  const calls = { players: [], draws: 0, sourceSync: 0, sourceDraws: 0, ui: [], scans: 0, wakeups: 0 };
   const clips = Array.from({ length: 100 }, (_, i) => ({ id: "v" + i, kind: "video", start: i * 10, duration: 10 }));
   const noop = () => {};
+  const ui = name => () => calls.ui.push(name);
   const env = {
     compositorReadback: frozen,
-    state: { time: 0, pps: 10, playing: false, exporting: false, rendering, source: { playing: false } },
+    state: { time: 0, pps: 10, playing: false, exporting: false, rendering, dirtyTimeline: true, source: { playing: false } },
     runtime: { clipGain: new Map() },
     els: { timelineScroll: { scrollLeft: 0, clientWidth: 100 }, playhead: { style: {} } },
-    trState: { open: false }, projDur: () => 1000, playRate: () => 1, frameDue: () => true,
+    trState: { open: false }, projDur: () => { calls.scans++; return 1000; }, playRate: () => 1, frameDue: () => true,
     mediaClips: () => clips, clipRenders: () => true, mediaTimeAt: () => 0,
     getClipEl(c) { calls.players.push(c.id); return { paused: true, currentTime: 0 }; },
     muteClipChain: noop, activeAt: (c, t) => t >= c.start && t < c.start + c.duration,
     isSourceMode: () => sourceMode,
     syncSourceMedia() { calls.sourceSync++; }, drawSourceFrame() { calls.sourceDraws++; },
     drawFrame() { calls.draws++; },
-    rebuildClips: noop, transcriptTick: noop, watchCaptions: noop, drawRuler: noop,
-    updateSafeOverlay: noop, updateKfGraphs: noop, syncInspectorPlayhead: noop, syncFxEditors: noop,
-    syncColorPlayhead: noop, updateTimecode: noop, updateMeterUI: noop, updateSourceScrub: noop,
-    idleAudio: noop, loopBusy: () => false, setTimeout: () => 0, requestAnimationFrame: noop,
+    rebuildClips: ui("clips"), transcriptTick: ui("transcript"), watchCaptions: ui("captions"), drawRuler: ui("ruler"),
+    updateSafeOverlay: ui("safe"), updateKfGraphs: ui("keyframes"), syncInspectorPlayhead: ui("inspector"), syncFxEditors: ui("fx"),
+    syncColorPlayhead: ui("color"), updateTimecode: ui("timecode"), updateMeterUI: ui("meters"), updateSourceScrub: ui("source"),
+    idleAudio: ui("idleAudio"), loopBusy: () => false,
+    setTimeout: () => { calls.wakeups++; return 0; }, requestAnimationFrame: () => { calls.wakeups++; },
   };
   const code = functionSource("function syncMedia()", "function seekMediaWhilePaused()") +
     functionSource("function loop(ts)", "/* ═══════════════════════════ EXPORT") +
@@ -91,6 +93,25 @@ test("a frozen job also fences the Source preview path", () => {
   const calls = previewTick({ frozen: true, sourceMode: true });
   assert.equal(calls.sourceSync, 0);
   assert.equal(calls.sourceDraws, 0);
+});
+
+test("frozen jobs leave interactive views/watchers and wakeups outside their explicit frame lifecycle", () => {
+  for (const rendering of [false, true]) {
+    const calls = previewTick({ frozen: true, rendering });
+    assert.deepEqual(calls.ui, [], "background jobs must not repeatedly rebuild ruler/inspector/caption views");
+    assert.equal(calls.scans, 0);
+    assert.equal(calls.wakeups, 0);
+  }
+});
+
+test("interactive views retain their scans, UI refreshes and next wakeup", () => {
+  for (const sourceMode of [false, true]) {
+    const calls = previewTick({ frozen: false, sourceMode });
+    assert.equal(calls.scans, 1);
+    for (const name of ["clips", "captions", "ruler", "inspector", "meters"])
+      assert(calls.ui.includes(name), name);
+    assert.equal(calls.wakeups, 1);
+  }
 });
 
 test("interactive timeline and Source ticks retain their existing preview behavior", () => {
