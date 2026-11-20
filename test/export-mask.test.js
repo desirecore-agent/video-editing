@@ -7,6 +7,8 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
 const a = source.indexOf("const bgSeg = "), b = source.indexOf("/* ═══════════ PIXEL PIPELINE", a);
 assert(a >= 0 && b > a);
+const contextStart = source.indexOf("const compositorReadback = "), contextEnd = source.indexOf("let ctx2d = ", contextStart);
+assert(contextStart >= 0 && contextEnd > contextStart);
 function load({ offline = false, mode = "ok" } = {}) {
   const calls = [];
   const control = { mode };
@@ -38,8 +40,8 @@ function load({ offline = false, mode = "ok" } = {}) {
       return canvas;
     },
   };
-  const context = { document, SelfieSegmentation: Segmentation, toast() {} };
-  vm.runInNewContext(source.slice(a, b) + "; globalThis.api = {bgSeg, ensureBgSeg, requestMask};", context);
+  const context = { document, SelfieSegmentation: Segmentation, toast() {}, URLSearchParams, location: { search: "?exportJob=mask-test" } };
+  vm.runInNewContext(source.slice(contextStart, contextEnd) + source.slice(a, b) + "; globalThis.api = {bgSeg, ensureBgSeg, requestMask};", context);
   return { ...context.api, calls, control };
 }
 const image = frame => ({ frame, videoWidth: 360, videoHeight: 640 });

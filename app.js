@@ -825,7 +825,14 @@ const els = {
   importUrlOverlay: $("importUrlOverlay"), importUrlInput: $("importUrlInput"),
   importUrlStatus: $("importUrlStatus"), importUrlProgress: $("importUrlProgress"),
 };
-let ctx2d = els.preview.getContext("2d");   // drawMaskedClip points it at an offscreen layer while a masked clip draws
+// A frozen export document reads every composited frame back to CPU pixels.
+// Set this on the first context creation; later calls cannot change its store.
+// The interactive editor retains each caller's original settings/defaults.
+const compositorReadback = Boolean(new URLSearchParams(location.search).get("exportJob"));
+function compositorContext(canvas, settings) {
+  return canvas.getContext("2d", compositorReadback ? { ...settings, willReadFrequently: true } : settings);
+}
+let ctx2d = compositorContext(els.preview);   // drawMaskedClip points it at an offscreen layer while a masked clip draws
 
 /* ── Utils ─────────────────────────────────────────────────────────────── */
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -11197,7 +11204,7 @@ function ensureBgSeg() {
         // as well as opaque pixels so yesterday's mask cannot remain visible.
         if (cv.width !== r.segmentationMask.width) cv.width = r.segmentationMask.width;
         if (cv.height !== r.segmentationMask.height) cv.height = r.segmentationMask.height;
-        const ctx = cv.getContext("2d");
+        const ctx = compositorContext(cv);
         ctx.clearRect(0, 0, cv.width, cv.height);
         ctx.drawImage(r.segmentationMask, 0, 0);
         bgSeg.resultVersion++;
@@ -11281,7 +11288,7 @@ function drawAdjust(c, W, H, t) {
   const p = evalProps(c, t);
   if (adjScratch.width !== W) adjScratch.width = W;
   if (adjScratch.height !== H) adjScratch.height = H;
-  const a = adjScratch.getContext("2d");
+  const a = compositorContext(adjScratch);
   a.clearRect(0, 0, W, H);
   a.drawImage(runtime.adjSource || els.preview, 0, 0);   // inside a comp: the comp's own layers below
   ctx2d.save();
@@ -11411,8 +11418,8 @@ function initPixGL() {
     gl.uniform1i(loc.uTex, 0);
     cv.addEventListener("webglcontextlost", (e) => { e.preventDefault(); pixGL.gl = null; });
     cv.addEventListener("webglcontextrestored", () => { pixGL.tried = false; });
-    const stage = document.createElement("canvas");   // GPU-backed: no willReadFrequently
-    Object.assign(pixGL, { gl, canvas: cv, loc, stage, stageCtx: stage.getContext("2d") });
+    const stage = document.createElement("canvas");
+    Object.assign(pixGL, { gl, canvas: cv, loc, stage, stageCtx: compositorContext(stage) });
     return gl;
   } catch (err) {
     console.warn("[视频剪辑] WebGL2 pixel pass unavailable, using the CPU path:", err && err.message);
@@ -11449,7 +11456,7 @@ function pixelPassGL(c, p, src, sx, sy, sw, sh, w, h, dw) {
   }
   if (out.width !== w) out.width = w;
   if (out.height !== h) out.height = h;
-  const o = out.getContext("2d");
+  const o = compositorContext(out);
   o.clearRect(0, 0, w, h);
   if (!run) { o.drawImage(stage, 0, 0, w, h, 0, 0, w, h); return out; }
   try {
@@ -11556,7 +11563,7 @@ function drawMediaStroke(target, source, p, dw, dh) {
   const sw = w + rx * 2, sh = h + ry * 2;
   if (mediaStroke.width !== sw) mediaStroke.width = sw;
   if (mediaStroke.height !== sh) mediaStroke.height = sh;
-  const g = mediaStroke.getContext("2d");
+  const g = compositorContext(mediaStroke);
   g.clearRect(0, 0, sw, sh);
   g.globalCompositeOperation = "source-over";
   for (let i = 0; i < 16; i++) {
@@ -13088,7 +13095,7 @@ function drawClipPicture(c, W, H, t, layered) {
       let processed = pixelPass(c, p, src, sx, sy, cw, ch, dw, dh);
       if (runtime.gradeCapture) { // pixelPass reuses its canvas — keep a copy
         const cp = document.createElement("canvas"); cp.width = processed.width; cp.height = processed.height;
-        cp.getContext("2d").drawImage(processed, 0, 0);
+        compositorContext(cp).drawImage(processed, 0, 0);
         captureGradeInput(c, [cp, 0, 0, cp.width, cp.height, cp.width, cp.height, dw, dh]);
       }
       if (grade) processed = gradeSource(processed, 0, 0, processed.width, processed.height, processed.width, processed.height, dw, dh, grade, matte) || processed;
@@ -13125,7 +13132,7 @@ function maskCtx(key, W, H) {
   if (!cv) cv = maskCv[key] = document.createElement("canvas");
   if (cv.width !== W) cv.width = W;
   if (cv.height !== H) cv.height = H;
-  return cv.getContext("2d", { willReadFrequently: false });
+  return compositorContext(cv, { willReadFrequently: false });
 }
 const maskNorm = new WeakMap();   // stored list → validated list (hand-written JSON gets defaults once)
 function clipMasks(c) {
@@ -16797,7 +16804,7 @@ function exportSourceCanvas() {
   if (!exportCropCanvas) exportCropCanvas = document.createElement("canvas");
   if (exportCropCanvas.width !== ef.w) exportCropCanvas.width = ef.w;
   if (exportCropCanvas.height !== ef.h) exportCropCanvas.height = ef.h;
-  if (!exportCropCtx) exportCropCtx = exportCropCanvas.getContext("2d", { alpha: false });
+  if (!exportCropCtx) exportCropCtx = compositorContext(exportCropCanvas, { alpha: false });
   exportCropCtx.drawImage(els.preview, ef.x, ef.y, ef.w, ef.h, 0, 0, ef.w, ef.h);
   return exportCropCanvas;
 }

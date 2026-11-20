@@ -2847,6 +2847,15 @@ three workers reuse their canvases. This adds explicit CPU readback/transfer
 work, rather than depending on a GPU-backed `ImageBitmap` remaining readable
 later. The compositor, effects, resolution, frame order and delivery stay the same.
 
+The frozen `?exportJob=...` document also requests `willReadFrequently:true`
+when first creating the program, mask, composition, stroke, adjustment, pixel
+staging and crop 2D contexts. This lets the browser favour readback storage
+instead of repeatedly reading GPU-backed 2D layers into the CPU snapshot.
+Interactive editor contexts retain their original caller settings/defaults;
+WebGL remains enabled for segmentation and pixel/grade effects. This setting
+does not by itself establish the cause of an earlier stalled export or prove
+that a full movie renders correctly on a particular driver.
+
 On a worker's first `EncodingError`, the failed canvas is released and the
 same retained pixels are encoded once on a fresh CPU-readback canvas. Its
 bitmap compatibility path likewise retains the original bitmap until it

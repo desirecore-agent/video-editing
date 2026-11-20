@@ -7,6 +7,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createExportJobs } = require("../export-jobs");
 const source = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+const contextStart = source.indexOf("const compositorReadback = "), contextEnd = source.indexOf("let ctx2d = ", contextStart);
+assert(contextStart >= 0 && contextEnd > contextStart);
+const contextCode = source.slice(contextStart, contextEnd);
 const strokeStart = source.indexOf('const mediaStroke = document.createElement("canvas");');
 const strokeEnd = source.indexOf("/* ═══════════ COLOR GRADE", strokeStart);
 assert(strokeStart >= 0 && strokeEnd > strokeStart);
@@ -60,6 +63,7 @@ test("the owned browser renders portrait video at 4K and validates effects/SVG",
     res.setHeader("Content-Type", "text/html");
     res.end(`<canvas width="2" height="2"></canvas><script>
       const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+      ${contextCode}
       ${maskModule}
       const BackgroundMask = self.FableCutBackgroundMask;
       const bgSeg = {masks:new Map()};
@@ -111,8 +115,9 @@ test("the owned browser renders portrait video at 4K and validates effects/SVG",
         const actualVideo=pixelPassGL({id:'portrait'},{temperature:2},video,0,0,video.videoWidth,video.videoHeight,1080,1920,1080);
         if(!actualVideo)throw Error('portrait video GPU pass unavailable');
         const program=document.createElement('canvas');program.width=2160;program.height=3840;
-        const pg=program.getContext('2d',{willReadFrequently:true});pg.drawImage(actualVideo,0,0,2160,3840);
-        const portrait={source:[video.videoWidth,video.videoHeight],canvas:[program.width,program.height],time:video.currentTime,presented:video._fcPresentedTime,pixel:[...pg.getImageData(1080,1920,1,1).data]};
+        const pg=compositorContext(program);pg.drawImage(actualVideo,0,0,2160,3840);
+        const portrait={source:[video.videoWidth,video.videoHeight],canvas:[program.width,program.height],time:video.currentTime,presented:video._fcPresentedTime,pixel:[...pg.getImageData(1080,1920,1,1).data],
+          readbackContexts:[pg,pixGL.stageCtx,compositorContext(actualVideo),compositorContext(mediaStroke)].map(g=>g.getContextAttributes().willReadFrequently)};
         video.pause();video.removeAttribute('src');video.load();
         await prepareSvgFrame({id:'valid-clip',mediaId:'valid'},.5);
         const svgValid=!!runtime.mediaAux.get('valid').img;
@@ -139,7 +144,10 @@ test("the owned browser renders portrait video at 4K and validates effects/SVG",
   let timer;
   t.after(() => clearTimeout(timer));
   const rendered = await Promise.race([result, new Promise((_, reject) => {
-    timer = setTimeout(() => reject(Error("export browser did not report WebGL capabilities")), 20000);
+    timer = setTimeout(() => {
+      jobs.cancel(job.id);
+      reject(Error("export browser did not report WebGL capabilities: " + JSON.stringify(jobs.get(job.id)?.diagnostics)));
+    }, 20000);
   })]);
   assert.equal(rendered.error,undefined,JSON.stringify({error:rendered.error,video:rendered.video}));
   assert.ok(Math.abs(rendered.portrait.time - .2) < .002, "the source actually sought to the requested time");
@@ -162,6 +170,7 @@ test("the owned browser renders portrait video at 4K and validates effects/SVG",
   assert.match(rendered.svgRelinkError,/svg raster failed/);
   assert.deepEqual(rendered.portrait.source,[1080,1920]);
   assert.deepEqual(rendered.portrait.canvas,[2160,3840],"background UI dimensions do not reduce the output canvas");
+  assert.deepEqual(rendered.portrait.readbackContexts,[true,true,true,true],"first-created compositor contexts use the export readback policy while WebGL still works");
   const [red,green,blue,alpha]=rendered.portrait.pixel;
   assert(red<50 && green>150 && blue>70 && blue<140 && alpha>250,
     `decoded portrait pixels must survive the GPU compositor, got ${rendered.portrait.pixel}`);

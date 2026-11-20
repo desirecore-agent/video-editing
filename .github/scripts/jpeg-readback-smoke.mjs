@@ -11,8 +11,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 function option(name) { const i = process.argv.indexOf(name); return i < 0 ? undefined : process.argv[i + 1]; }
 const dataDir = option("--data-dir"), output = option("--out");
 const frames = Number(option("--frames") || 3105), injection = option("--inject") || "none";
-if (!dataDir || !output || !Number.isInteger(frames) || frames < 3 || frames > 6000 || !["none", "one-per-worker"].includes(injection))
-  throw Error("Use --data-dir <prepared data> --out <new directory> [--frames 3..6000] [--inject none|one-per-worker]");
+const sourceContextMode = option("--source-context") || "default";
+if (!dataDir || !output || !Number.isInteger(frames) || frames < 3 || frames > 6000 || !["none", "one-per-worker"].includes(injection) || !["default", "export"].includes(sourceContextMode))
+  throw Error("Use --data-dir <prepared data> --out <new directory> [--frames 3..6000] [--inject none|one-per-worker] [--source-context default|export]");
 const runtime = checkedRuntime(path.resolve(dataDir));
 const out = path.resolve(output);
 await fs.mkdir(out); // Never overwrite a previous observation.
@@ -28,6 +29,7 @@ const workerSource = chunk("const JPEG_WORKER_SRC = `", "\n`;").slice("const JPE
 const snapshotSource = chunk("function snapshotExportFrame()", "const JPEG_WORKER_SRC =");
 const resetSource = chunk("function resetExportCanvases()", "function waitMediaEl(");
 const poolSource = chunk("function createJpegWorkers(", "function jpegFromBitmap(");
+const contextSource = chunk("const compositorReadback = ", "let ctx2d = ");
 const injectSource = injection === "one-per-worker" ? `
 const NativeCanvas = OffscreenCanvas;
 let injected = false;
@@ -87,7 +89,8 @@ try {
     "use strict";
     const sourceCanvas = document.createElement("canvas");
     sourceCanvas.width = 2160; sourceCanvas.height = 3840;
-    const sourceContext = sourceCanvas.getContext("2d", { alpha: false });
+    const createCompositorContext = (function(location) { ${contextSource}; return compositorContext; })({search:${JSON.stringify(sourceContextMode === "export" ? "?exportJob=native-fixture" : "")}});
+    const sourceContext = createCompositorContext(sourceCanvas, { alpha: false });
     function exportSourceCanvas() { return sourceCanvas; }
     function canvasTaintError(error) { return error; }
     ${snapshotSource}
@@ -99,7 +102,8 @@ try {
     const JPEG_WORKER_SRC = ${JSON.stringify(injectSource + workerSource)};
     ${poolSource}
     globalThis.fixture = { status: "running", completed: 0, frames: ${frames}, width: 2160, height: 3840,
-      injection: ${JSON.stringify(injection)}, resetValidated: true, queuePeak: 0, pixelChecks: [], bytes: 0, appExportVerified: false };
+      injection: ${JSON.stringify(injection)}, sourceContextMode:${JSON.stringify(sourceContextMode)}, sourceContextAttributes:sourceContext.getContextAttributes(),
+      resetValidated: true, queuePeak: 0, pixelChecks: [], bytes: 0, appExportVerified: false };
     (async () => {
       const pool = createJpegWorkers(3), queue = [];
       if (!pool) throw Error("Actual native JPEG workers unavailable");
