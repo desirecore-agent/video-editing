@@ -6,6 +6,7 @@ const {makeDataDir,seedProject,startServer,startMcp}=require('./helpers');
 test('original terminal browser facts and multi-file recovered frames reach MCP without creating another job',async t=>{
  const dir=makeDataDir(t,seedProject()),store=path.join(dir,'exports/jobs');fs.mkdirSync(store,{recursive:true});
  const browser={pid:1234,discovery:'enabled',targetCrashes:[{at:10,targetId:'page',type:'page',status:'oom',errorCode:5,ownerClosing:false}],stderrTail:'not-for-context-'.repeat(1000)+'actual tail',exit:null};
+ browser.memory={status:'sampled',stopReason:'target_destroyed',sampleCount:40,peak:{usedSize:400,totalSize:1000,backingStorageSize:2000,privateData:'excluded'},samples:Array.from({length:40},(_,i)=>({at:i,usedSize:i,totalSize:1000,unexpected:'excluded'}))};
  const ids=[];
  for(const status of ['failed','cancelled','interrupted']){
   const id='x_unit'+status;ids.push(id);
@@ -21,6 +22,8 @@ test('original terminal browser facts and multi-file recovered frames reach MCP 
   const facts=JSON.parse(result.text.split('Original browser diagnostics: ')[1]);
   assert.equal(facts.pid,1234);assert.equal(facts.targetCrashes[0].status,'oom');assert.equal(facts.targetCrashes[0].errorCode,5);
   assert.equal(facts.stderrTail.length,2048);assert.equal(facts.stderrTailTruncated,true);assert(facts.stderrTail.endsWith('actual tail'));
+  assert.equal(facts.memory.sampleCount,40);assert.equal(facts.memory.retainedSamples,32);assert.equal(facts.memory.lastSample.usedSize,39);
+  assert.equal(facts.memory.peak.backingStorageSize,2000);assert.equal(facts.memory.stopReason,'target_destroyed');assert(!JSON.stringify(facts).includes('excluded'));
   assert(!result.text.includes('Check again'),'terminal receipts do not imply an active renderer');
   const saved=await fetch(base+'/api/export/job?id='+id).then(r=>r.json());assert.equal(saved.error,'original failure retained');
  }

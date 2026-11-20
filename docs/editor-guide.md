@@ -2847,6 +2847,14 @@ three workers reuse their canvases. This adds explicit CPU readback/transfer
 work, rather than depending on a GPU-backed `ImageBitmap` remaining readable
 later. The compositor, effects, resolution, frame order and delivery stay the same.
 
+The original browser pipe also reads numeric `Runtime.getHeapUsage` facts from
+one session on the exact job page every 10 seconds. It retains 32 samples,
+the count and numeric peaks; one unanswered request times out after 30 seconds
+and stops observation. Terminal MCP summaries preserve the last sample, peaks
+and stop reason. These are isolate measurements, not whole-process RSS or
+independent-worker memory. Sampling does not evaluate page JavaScript, force
+GC, change export choices/timeouts or establish an OOM/GPU/driver cause.
+
 The frozen `?exportJob=...` document also requests `willReadFrequently:true`
 when first creating the program, mask, composition, stroke, adjustment, pixel
 staging and crop 2D contexts. This lets the browser favour readback storage

@@ -276,7 +276,7 @@ function createExportJobs(opts) {
       // portrait video; keep the controls compact and render at project size.
       "--disable-backgrounding-occluded-windows", "--window-size=800,600",
       opts.url(j.id),
-    ], { profileDir, keep: !!kept, onTargetCrash: crash => {
+    ], { profileDir, keep: !!kept, observePageMemory: opts.url(j.id), onTargetCrash: crash => {
       if (crash.type !== "page" || crash.url !== opts.url(j.id) || isEnded(j)) return;
       end(j, "failed", { error: `the export page crashed: ${crash.status} (Chromium error ${crash.errorCode})` });
     } });

@@ -62,6 +62,8 @@ GUI Fast 与 `fablecut_export` 均由独立的已准备无头浏览器渲染原 
 
 后台浏览器由本服务独占 `--remote-debugging-pipe` 的父侧 FD3/FD4，不将父侧管道传给其它子进程。固定 Chromium 156.0.8078.80 的[管道实现](https://chromium.googlesource.com/chromium/src/+/156.0.8078.80/content/browser/devtools/devtools_pipe_handler.cc)在 EOF/error 时调用断联回调；[headless shell](https://chromium.googlesource.com/chromium/src/+/156.0.8078.80/headless/lib/browser/headless_devtools.cc)将该回调绑定到浏览器 Shutdown，普通 Chrome 绑定到 CloseBrowserSoon。服务被强杀时由 OS 关闭管道，无需重启后根据旧 PID 查杀。正常 job 收尾先关闭输入管道，让浏览器自行关闭；3 秒未退出才向仍存活的原 ChildProcess 发 TERM，再等 2 秒才发 KILL，已退出即取消兜底。兜底不等于后代已确认收闭；真实 Chrome 与各 OS 的完整进程树仍须单独验收，纯 Node 管道回归不能代替。
 
+同一独占管道仅 attach 到 URL 精确匹配原 job 的主页面，每10秒读取一次 `Runtime.getHeapUsage` 数字；最多一个未回请求，30秒未回就停止观测。原浏览器失败回执保留最多32个样本、总次数及峰值，MCP摘要只显示最后样本/峰值和停止原因。数字按该页面所在 isolate 的合同解释，不是完整进程 RSS，也不覆盖独立 worker。采样不执行页面 JavaScript、不强制 GC、不重试导出或更改120秒失联门限；不支持/销毁/关闭/管道错误会明确停采样，保留已有事实。只靠 heap 或工作集数值仍不能认定 OOM、GPU或驱动根因。
+
 同一独占管道通过 Chromium `Target.setDiscoverTargets` 观察 `Target.targetCrashed`，不增加调试端口或附着其它浏览器。只有 URL 匹配本 job 的页面崩溃才立即使原 job 失败；保留 Chromium 的实际 status/errorCode，不推断 GPU/OOM。失败回执的 `diagnostics.browser` 保存原浏览器 PID、discovery 状态、最近最多8次目标崩溃、最多16KiB stderr尾部和已观察到的根进程退出事实；目标崩溃条目不保存 URL/标题。PID只作观测，不用于重启后查杀。服务主动关闭后的事件标为 ownerClosing，不改写原终态。协议不支持时明确记录 unsupported，仍按原120秒失联合同处理；失联本身仍不能证明自然崩溃，stderr中可能出现本机路径或URL，应按运行数据保留。
 
 正常收尾只在原浏览器确认 close 后删除本 job 的一次性 profile；转录的保留缓存不删。服务被强杀后无法执行自己的 profile 清理；正常服务停止也可能先于浏览器 close/finalizer 退出，此时不保证 profile 清理或 TERM/KILL 兜底完成，OS 仍会关闭管道。旧一次性 profile 可能留存；重启不扫描临时目录、猜测归属或按旧 PID 补删。此 profile 生命周期与原 job 的 `exports` 临时产物登记、恢复清理和 `cleanup` 回执分别处理，不将 profile 移除冒作编码产物已清理。

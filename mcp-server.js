@@ -1251,6 +1251,17 @@ function describeExportJob(j) {
       })) : [], exit: b.exit ?? null,
       stderrTail: tail.slice(-2048), stderrTailTruncated: tail.length > 2048,
     };
+    if (b.memory && typeof b.memory === "object") {
+      const m = b.memory, samples = Array.isArray(m.samples) ? m.samples.slice(-32) : [];
+      const numeric = value => Object.fromEntries(["at", "usedSize", "totalSize", "embedderHeapUsedSize", "backingStorageSize"]
+        .filter(key => typeof value?.[key] === "number" && Number.isFinite(value[key]) && value[key] >= 0)
+        .map(key => [key, value[key]]));
+      facts.memory = { protocol: "Runtime.getHeapUsage", status: typeof m.status === "string" ? m.status.slice(0, 64) : "unknown",
+        stopReason: typeof m.stopReason === "string" ? m.stopReason.slice(0, 128) : null,
+        sampleCount: Number.isSafeInteger(m.sampleCount) && m.sampleCount >= 0 ? m.sampleCount : 0,
+        retainedSamples: samples.length, peak: numeric(m.peak), lastSample: numeric(samples.at(-1)),
+      };
+    }
     text += "\nOriginal browser diagnostics: " + JSON.stringify(facts);
   }
   const recovered = j.result?.diagnostics?.jpegReadbackRecoveries;

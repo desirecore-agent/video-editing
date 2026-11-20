@@ -12,10 +12,13 @@ const KILL_GRACE_MS = 2000;
 const PIPE_MESSAGE_BYTES = 64 * 1024;
 const STDERR_BYTES = 16 * 1024;
 
-function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCrash } = {}) {
+function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCrash, observePageMemory } = {}) {
   const observe = typeof onTargetCrash === "function";
   const diagnostics = { discovery: observe ? "pending" : "disabled", targetCrashes: [], stderrTail: "", exit: null };
+  const memoryUrl = observe && typeof observePageMemory === "string" && observePageMemory ? observePageMemory : null;
+  if (memoryUrl) diagnostics.memory = { status: "waiting", sampleCount: 0, samples: [], peak: {}, stopReason: null };
   let closing = false, termTimer, killTimer;
+  let stopMemory = () => {};
   const removeProfile = (attempts = 5) => {
     if (keep) return;
     fs.rm(profileDir, { recursive: true, force: true }, (error) => {
@@ -36,20 +39,74 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
   const input = proc.stdio[3], output = proc.stdio[4];
   // This remains the sole owner of the EOF pipe. Observing targets uses that
   // existing pipe, never a debug port or attachment to another browser.
-  input.on("error", () => { if (observe && !closing) diagnostics.discovery = "pipe_error"; });
-  output.on("error", () => { if (observe && !closing) diagnostics.discovery = "pipe_error"; });
+  input.on("error", () => { if (observe && !closing) diagnostics.discovery = "pipe_error"; stopMemory("pipe_error"); });
+  output.on("error", () => { if (observe && !closing) diagnostics.discovery = "pipe_error"; stopMemory("pipe_error"); });
   if (observe) {
     const decoder = new StringDecoder("utf8"), targets = new Map();
     let pending = "", discarded = false;
+    // One exact owned page, one pending read, bounded numeric history. No JS
+    // evaluation, GC, debug port, inferred cause or effect on job admission.
+    let memoryTarget, memorySession, attachId, heapId, nextId = 2, memoryTimer, memoryDeadline;
+    const memory = diagnostics.memory;
+    stopMemory = reason => {
+      clearInterval(memoryTimer); clearTimeout(memoryDeadline);
+      attachId = heapId = null;
+      if (memory && !memory.stopReason) memory.stopReason = reason;
+    };
+    const command = (id, method, params = {}, sessionId) => {
+      input.write(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }) + "\0", error => {
+        if (error) stopMemory("pipe_error");
+      });
+      memoryDeadline = setTimeout(() => {
+        if (!closing && memory && !memory.stopReason) memory.status = "unresponsive";
+        stopMemory("unresponsive");
+      }, 30_000);
+      memoryDeadline.unref?.();
+    };
+    const sampleMemory = () => {
+      if (closing || !memorySession || heapId || memory.stopReason) return;
+      heapId = nextId++;
+      command(heapId, "Runtime.getHeapUsage", {}, memorySession);
+    };
     const message = raw => {
       let event;
       try { event = JSON.parse(raw); } catch { return; }
       if (event.id === 1) diagnostics.discovery = event.error ? "unsupported" : "enabled";
+      if (memory && !closing && !memory.stopReason && attachId && event.id === attachId) {
+        clearTimeout(memoryDeadline); attachId = null;
+        if (event.error || typeof event.result?.sessionId !== "string" || !event.result.sessionId) {
+          memory.status = "unsupported"; stopMemory("attach_unavailable");
+        } else {
+          memorySession = event.result.sessionId; memory.status = "attached";
+          memoryTimer = setInterval(sampleMemory, 10_000); memoryTimer.unref?.(); sampleMemory();
+        }
+      } else if (memory && !closing && !memory.stopReason && heapId && event.id === heapId && event.sessionId === memorySession) {
+        clearTimeout(memoryDeadline); heapId = null;
+        const data = event.result;
+        if (event.error || !data || ![data.usedSize, data.totalSize].every(n => typeof n === "number" && Number.isFinite(n) && n >= 0)) {
+          memory.status = "unavailable"; stopMemory("heap_unavailable");
+        } else {
+          const sample = { at: Date.now() };
+          for (const key of ["usedSize", "totalSize", "embedderHeapUsedSize", "backingStorageSize"]) {
+            if (typeof data[key] !== "number" || !Number.isFinite(data[key]) || data[key] < 0) continue;
+            sample[key] = data[key]; memory.peak[key] = Math.max(memory.peak[key] || 0, data[key]);
+          }
+          memory.status = "sampled"; memory.sampleCount++; memory.samples.push(sample);
+          if (memory.samples.length > 32) memory.samples.shift();
+        }
+      }
       const info = event.params?.targetInfo;
       if ((event.method === "Target.targetCreated" || event.method === "Target.targetInfoChanged") && info?.targetId) {
         if (!targets.has(info.targetId) && targets.size >= 128) targets.delete(targets.keys().next().value);
         targets.set(info.targetId, { type: info.type, url: info.url });
-      } else if (event.method === "Target.targetDestroyed") targets.delete(event.params?.targetId);
+        if (memory && !closing && !memory.stopReason && !memoryTarget && info.type === "page" && info.url === memoryUrl) {
+          memoryTarget = info.targetId; memory.status = "attaching"; attachId = nextId++;
+          command(attachId, "Target.attachToTarget", { targetId: memoryTarget, flatten: true });
+        }
+      } else if (event.method === "Target.targetDestroyed") {
+        targets.delete(event.params?.targetId);
+        if (memoryTarget && event.params?.targetId === memoryTarget) stopMemory("target_destroyed");
+      }
       else if (event.method === "Target.targetCrashed") {
         const p = event.params;
         if (!p || typeof p.targetId !== "string" || typeof p.status !== "string" || !Number.isInteger(p.errorCode)) return;
@@ -57,6 +114,7 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
         const crash = { at: Date.now(), targetId: p.targetId, type: target?.type || "unknown", status: p.status.slice(0, 128), errorCode: p.errorCode, ownerClosing: closing };
         diagnostics.targetCrashes.push(crash);
         if (diagnostics.targetCrashes.length > 8) diagnostics.targetCrashes.shift();
+        if (p.targetId === memoryTarget) stopMemory("target_crashed");
         // Closing our owner can itself destroy targets. It is not a natural
         // page crash and must not replace an existing result/cancellation.
         if (!closing) onTargetCrash({ ...crash, url: target?.url });
@@ -90,7 +148,7 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
     });
   } else output.resume();
   const exited = () => proc.exitCode !== null || proc.signalCode !== null;
-  const clearTimers = () => { clearTimeout(termTimer); clearTimeout(killTimer); };
+  const clearTimers = () => { clearTimeout(termTimer); clearTimeout(killTimer); stopMemory("process_exit"); };
   proc.once("exit", clearTimers);
   proc.once("exit", (code, signal) => { diagnostics.exit = { code, signal, ownerClosing: closing }; });
   proc.once("error", clearTimers);
@@ -108,6 +166,7 @@ function createBrowserProcess(exe, args, { profileDir, keep = false, onTargetCra
     close() {
       if (closing) return;
       closing = true;
+      stopMemory("owner_closed");
       input.destroy(); // the same EOF path also runs when our owner is SIGKILLed
       if (exited() || !proc.pid) return;
       termTimer = setTimeout(() => {
