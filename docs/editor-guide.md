@@ -2847,6 +2847,14 @@ three workers reuse their canvases. This adds explicit CPU readback/transfer
 work, rather than depending on a GPU-backed `ImageBitmap` remaining readable
 later. The compositor, effects, resolution, frame order and delivery stay the same.
 
+After encoding or the one same-frame recovery finishes, a worker detaches its
+consumed exclusive RGBA store with `ArrayBuffer.transfer(0)` when supported.
+Frame uploads consume the successful HTTP response body before advancing the
+ordered queue, then retire their exclusive complete buffer and clear the payload
+reference on success or failure. Slices sharing another owner's backing store,
+Blobs and browsers without detachable buffers keep their ordinary path. These
+resource lifetimes do not force GC or certify whole-movie memory stability.
+
 The original browser pipe also reads numeric `Runtime.getHeapUsage` facts from
 one session on the exact job page every 10 seconds. It retains 32 samples,
 the count and numeric peaks; one unanswered request times out after 30 seconds

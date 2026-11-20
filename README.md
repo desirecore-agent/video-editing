@@ -22,6 +22,8 @@ Export seeking registers presented-frame callbacks before the seek and reuses ve
 
 If a JPEG worker first reports `EncodingError`, it retains that exact frame snapshot and tries CPU readback once, then reuses that CPU canvas. A second failure or any other error fails the original job; frames are never skipped or re-rendered. Delivery receipts record recovered frame indices in `result.diagnostics.jpegReadbackRecoveries`; inspect those frames and their neighbours in the actual movie.
 
+Consumed exclusive RGBA/frame buffers are retired after encoding/recovery or upload when buffer transfer is supported. Ordered uploads also finish consuming successful HTTP responses before admitting the next frame. This closes resource lifetimes without forcing GC; full-movie stability still requires actual output verification.
+
 HTTP media ranges, static files, thumbnails and cached frames share a file-transfer lifetime. Closing a browser request closes its file reader; asynchronous open/read failures fail that transfer instead of terminating the editor with an unhandled stream error. Completed transfers retain their existing bytes and Range responses.
 
 Use Node 22 or newer from DesireCore's managed runtime PATH. Native FFmpeg, ffprobe and a headless browser are prepared explicitly in the application's data directory; see [the runtime and backup contract](desirecore/RUNTIME.md). No developer machine paths or native binaries are bundled.

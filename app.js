@@ -16886,6 +16886,9 @@ self.onmessage = (e) => {
         ...(readbackRecovery ? { readbackRecovery: true } : {}) });
     } finally {
       if (bmp) try { bmp.close(); } catch {}
+      // This worker owns the transferred snapshot. Retire it only after the
+      // same-frame recovery has finished; settled promises may outlive pixels.
+      if (data?.buffer?.byteLength) try { data.buffer.transfer?.(0); } catch {}
     }
   });
 };
@@ -17102,13 +17105,22 @@ function createExportUploader(sessId, { batchItems, batchBytes, signal, getError
   const enqueueUpload = (body) => {
     uploadsInFlight++;
     const p = uploadTail.catch(() => {}).then(async () => {
-      if (cancelled()) throw new Error("cancelled");
-      const err = getError();
-      if (err) throw err;
-      const r = await fetch("/api/export/frame?id=" + sessId, {
-        method: "POST", body, signal,
-      });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "frame upload failed");
+      try {
+        if (cancelled()) throw new Error("cancelled");
+        const err = getError();
+        if (err) throw err;
+        const r = await fetch("/api/export/frame?id=" + sessId, {
+          method: "POST", body, signal,
+        });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "frame upload failed");
+        await r.arrayBuffer(); // headers alone do not finish the response's lifetime
+      } finally {
+        // push hands this uploader exclusive complete frame buffers. A slice
+        // may share another owner's store, and Blob needs its ordinary path.
+        if (body instanceof Uint8Array && body.byteOffset === 0 && body.byteLength === body.buffer.byteLength)
+          try { body.buffer.transfer?.(0); } catch {}
+        body = null;
+      }
     });
     uploadTail = p.catch((err) => {
       if (!getError()) setError(err);
